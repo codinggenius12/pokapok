@@ -1,4 +1,4 @@
-import { Link } from "expo-router";
+import { Link, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -8,28 +8,40 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import Header from "../../src/components/layout/Header";
 import PhoneVisual from "../../src/components/phone/PhoneVisual";
+import { useCurrency } from "../../src/context/CurrencyStore";
+import { useLanguage } from "../../src/context/LanguageContext";
 import { phones } from "../../src/data/phones";
 
 import {
-  getActiveProductPrice,
+  getProductSellConditions,
   getPublicProducts,
-  productHasPromotion,
-  productIsPurchasable,
+  getPublicProductVariants,
   type PublicProduct,
+  type PublicProductVariant,
+  type PublicSellCondition,
 } from "../../src/services/productService";
 
 import { colors } from "../../src/theme/colors";
-import { formatCurrency } from "../../src/utils/formatCurrency";
 
 type ConditionFilter =
   | "all"
   | "new"
   | "refurbished"
   | "used";
+
+type PriceFilter =
+  | "all"
+  | "under300"
+  | "300to500"
+  | "500to800"
+  | "800plus";
 
 type CatalogItem = {
   id: string;
@@ -47,9 +59,7 @@ type CatalogItem = {
   legacyPhone?: (typeof phones)[number];
 };
 
-function formatBrandLabel(
-  brand: string
-) {
+function formatBrandLabel(brand: string) {
   if (!brand) {
     return "";
   }
@@ -61,123 +71,157 @@ function formatBrandLabel(
 }
 
 export default function CatalogScreen() {
-  const [
-    brand,
-    setBrand,
-  ] = useState(
-    "all"
+  const {
+    brand: brandParam,
+    condition: conditionParam,
+  } = useLocalSearchParams<{
+    brand?: string | string[];
+    condition?: string | string[];
+  }>();
+
+  const {
+    t,
+    language,
+  } = useLanguage();
+
+  const {
+    formatPrice,
+  } = useCurrency(
+    language
   );
 
-  const [
-    condition,
-    setCondition,
-  ] =
-    useState<ConditionFilter>(
-      "all"
+  const insets =
+    useSafeAreaInsets();
+
+  const {
+    width,
+  } = useWindowDimensions();
+
+  const isMobile =
+    width <= 767;
+
+  const mobileCardWidth =
+    Math.min(
+      Math.max(
+        width * 0.74,
+        260
+      ),
+      300
     );
 
+  const [brand, setBrand] = useState("all");
+
+  const [condition, setCondition] =
+    useState<ConditionFilter>("all");
+
+  const [priceFilter, setPriceFilter] =
+    useState<PriceFilter>("all");
+
   const [
-    query,
-    setQuery,
-  ] = useState("");
+    showFilters,
+    setShowFilters,
+  ] = useState(false);
+
+  const [query, setQuery] = useState("");
 
   const [
     supabaseProducts,
     setSupabaseProducts,
-  ] =
-    useState<
-      PublicProduct[]
-    >([]);
+  ] = useState<PublicProduct[]>([]);
+
+  const [
+    variantsByProductId,
+    setVariantsByProductId,
+  ] = useState<
+    Record<
+      string,
+      PublicProductVariant[]
+    >
+  >({});
 
   const [
     loadingProducts,
     setLoadingProducts,
-  ] =
-    useState(true);
+  ] = useState(true);
 
   const [
     productsError,
     setProductsError,
-  ] =
-    useState<
-      string | null
-    >(null);
+  ] = useState<string | null>(null);
 
   const [
     failedImages,
     setFailedImages,
-  ] =
-    useState<
-      Record<
-        string,
-        boolean
-      >
-    >({});
+  ] = useState<Record<string, boolean>>({});
 
   /* =========================================================
      LOAD LIVE PRODUCTS
   ========================================================= */
 
   useEffect(() => {
-    let active =
-      true;
+    let active = true;
 
     async function loadProducts() {
       try {
-        setLoadingProducts(
-          true
-        );
-
-        setProductsError(
-          null
-        );
+        setLoadingProducts(true);
+        setProductsError(null);
 
         const data =
           await getPublicProducts();
+
+        const variantEntries =
+          await Promise.all(
+            data.map(
+              async (product) => {
+                try {
+                  const variants =
+                    await getPublicProductVariants(
+                      product.id
+                    );
+
+                  return [
+                    product.id,
+                    variants,
+                  ] as const;
+                } catch (error) {
+                  console.warn(
+                    `Could not load variants for ${product.name}:`,
+                    error
+                  );
+
+                  return [
+                    product.id,
+                    [],
+                  ] as const;
+                }
+              }
+            )
+          );
 
         if (!active) {
           return;
         }
 
-        setSupabaseProducts(
-          data
+        setSupabaseProducts(data);
+
+        setVariantsByProductId(
+          Object.fromEntries(
+            variantEntries
+          )
         );
 
-        /*
-         * Useful while connecting the
-         * dashboard image system.
-         */
         console.log(
           "SUPABASE PRODUCTS:",
           data
         );
 
         console.log(
-          "PRODUCT IMAGES:",
-          data.map(
-            (
-              product
-            ) => ({
-              name:
-                product.name,
-
-              image_url:
-                product.image_url,
-
-              published:
-                product.published,
-
-              available:
-                product.available,
-
-              stock:
-                product.stock,
-            })
+          "SUPABASE PRODUCT VARIANTS:",
+          Object.fromEntries(
+            variantEntries
           )
         );
-      } catch (
-        error
-      ) {
+      } catch (error) {
         console.error(
           "Failed to load live catalogue:",
           error
@@ -192,9 +236,7 @@ export default function CatalogScreen() {
         );
       } finally {
         if (active) {
-          setLoadingProducts(
-            false
-          );
+          setLoadingProducts(false);
         }
       }
     }
@@ -202,8 +244,7 @@ export default function CatalogScreen() {
     loadProducts();
 
     return () => {
-      active =
-        false;
+      active = false;
     };
   }, []);
 
@@ -212,70 +253,43 @@ export default function CatalogScreen() {
 
      Supabase is the source of truth.
 
-     phones.ts only enriches older products
-     with legacy visuals/specifications.
+     phones.ts is currently only used for legacy
+     visual/specification enrichment.
   ========================================================= */
 
   const catalogItems =
-    useMemo<
-      CatalogItem[]
-    >(() => {
-      const legacyMap =
-        new Map(
-          phones.map(
-            (
-              phone
-            ) => [
-              phone.slug,
-              phone,
-            ]
-          )
-        );
+    useMemo<CatalogItem[]>(() => {
+      const legacyMap = new Map(
+        phones.map((phone) => [
+          phone.slug,
+          phone,
+        ])
+      );
 
       return supabaseProducts
         .filter(
-          (
-            product
-          ) =>
+          (product) =>
             product.published
         )
-        .map(
-          (
-            product
-          ) => {
-            const legacyPhone =
-              legacyMap.get(
-                product.slug
-              );
+        .map((product) => {
+          const legacyPhone =
+            legacyMap.get(
+              product.slug
+            );
 
-            return {
-              id:
-                product.id,
-
-              slug:
-                product.slug,
-
-              name:
-                product.name,
-
-              brand:
-                product.brand,
-
-              condition:
-                product.condition,
-
-              live:
-                product,
-
-              legacyPhone,
-            };
-          }
-        )
+          return {
+            id: product.id,
+            slug: product.slug,
+            name: product.name,
+            brand: product.brand,
+            condition:
+              product.condition,
+            live: product,
+            legacyPhone,
+          };
+        })
         .sort(
-          (
-            a,
-            b
-          ) =>
+          (a, b) =>
             Number(
               b.live.featured
             ) -
@@ -283,110 +297,482 @@ export default function CatalogScreen() {
               a.live.featured
             )
         );
-    }, [
-      supabaseProducts,
-    ]);
+    }, [supabaseProducts]);
 
   /* =========================================================
      DYNAMIC BRANDS
   ========================================================= */
 
-  const brands =
-    useMemo(
-      () => {
-        const uniqueBrands =
-          Array.from(
-            new Set(
-              catalogItems.map(
-                (
-                  item
-                ) =>
-                  item.brand.toLowerCase()
-              )
-            )
-          ).sort();
+  const brands = useMemo(() => {
+    const uniqueBrands =
+      Array.from(
+        new Set(
+          catalogItems.map(
+            (item) =>
+              item.brand.toLowerCase()
+          )
+        )
+      ).sort();
 
-        return [
-          "all",
-          ...uniqueBrands,
-        ];
-      },
-      [
-        catalogItems,
-      ]
-    );
+    return [
+      "all",
+      ...uniqueBrands,
+    ];
+  }, [catalogItems]);
+
+  /* =========================================================
+     BRAND FROM URL
+
+     Allows links such as:
+     /catalog?brand=apple
+     /catalog?brand=samsung
+     /catalog?brand=all
+
+     The brand is only selected after the live catalogue has
+     loaded and the requested brand actually exists.
+  ========================================================= */
+
+  useEffect(() => {
+    const rawBrand =
+      Array.isArray(brandParam)
+        ? brandParam[0]
+        : brandParam;
+
+    const requestedBrand =
+      rawBrand
+        ?.trim()
+        .toLowerCase();
+
+    if (!requestedBrand) {
+      return;
+    }
+
+    if (requestedBrand === "all") {
+      setBrand("all");
+      return;
+    }
+
+    if (
+      brands.includes(
+        requestedBrand
+      )
+    ) {
+      setBrand(
+        requestedBrand
+      );
+    }
+  }, [
+    brandParam,
+    brands,
+  ]);
+
+  /* =========================================================
+     CONDITION FROM URL
+
+     Allows links such as:
+     /catalog?condition=new
+     /catalog?condition=refurbished
+     /catalog?condition=used
+     /catalog?condition=all
+  ========================================================= */
+
+  useEffect(() => {
+    const rawCondition =
+      Array.isArray(
+        conditionParam
+      )
+        ? conditionParam[0]
+        : conditionParam;
+
+    const requestedCondition =
+      rawCondition
+        ?.trim()
+        .toLowerCase();
+
+    if (!requestedCondition) {
+      return;
+    }
+
+    if (
+      requestedCondition === "all" ||
+      requestedCondition === "new" ||
+      requestedCondition ===
+        "refurbished" ||
+      requestedCondition === "used"
+    ) {
+      setCondition(
+        requestedCondition as
+          ConditionFilter
+      );
+    }
+  }, [conditionParam]);
+
+  /* =========================================================
+     CATALOGUE DISPLAY PRICE
+
+     The price filter uses the same price that is shown on the
+     product card for the currently selected condition.
+
+     Pricing source of truth:
+     Supabase product_variants only.
+  ========================================================= */
+
+  function getCatalogItemPricing(
+    item: CatalogItem
+  ) {
+    const live =
+      item.live;
+
+    const displayCondition:
+      CatalogItem["condition"] =
+        condition === "all"
+          ? item.condition
+          : condition;
+
+    const productVariants =
+      variantsByProductId[
+        item.id
+      ] ?? [];
+
+    const availableVariants =
+      productVariants.filter(
+        (variant) =>
+          variant.available
+      );
+
+    function getDirectVariantPrices(
+      variant: PublicProductVariant
+    ) {
+      let normalPrice:
+        number | null = null;
+
+      let promotionalPrice:
+        number | null = null;
+
+      if (
+        displayCondition === "new"
+      ) {
+        normalPrice =
+          variant.sale_price;
+
+        promotionalPrice =
+          variant.promotional_price;
+      } else if (
+        live.condition ===
+          "refurbished" ||
+        live.condition === "used"
+      ) {
+        normalPrice =
+          variant.sale_price;
+
+        promotionalPrice =
+          variant.promotional_price;
+      } else {
+        normalPrice =
+          variant.refurbished_sale_price;
+
+        promotionalPrice =
+          variant.refurbished_promotional_price;
+      }
+
+      if (
+        normalPrice === null ||
+        !Number.isFinite(
+          normalPrice
+        ) ||
+        normalPrice <= 0
+      ) {
+        return {
+          normalPrice: null,
+          activePrice: null,
+        };
+      }
+
+      const activePrice =
+        promotionalPrice !== null &&
+        Number.isFinite(
+          promotionalPrice
+        ) &&
+        promotionalPrice > 0 &&
+        promotionalPrice <
+          normalPrice
+          ? promotionalPrice
+          : normalPrice;
+
+      return {
+        normalPrice,
+        activePrice,
+      };
+    }
+
+    const variantPrices =
+      availableVariants
+        .map(
+          getDirectVariantPrices
+        )
+        .filter(
+          (entry) =>
+            entry.activePrice !==
+            null
+        );
+
+    const activePrices =
+      variantPrices
+        .map(
+          (entry) =>
+            entry.activePrice
+        )
+        .filter(
+          (
+            price
+          ): price is number =>
+            price !== null
+        );
+
+    const activePrice =
+      activePrices.length > 0
+        ? Math.min(
+            ...activePrices
+          )
+        : null;
+
+    const lowestEntry =
+      activePrice === null
+        ? null
+        : variantPrices.find(
+            (entry) =>
+              entry.activePrice ===
+              activePrice
+          ) ?? null;
+
+    const normalPrice =
+      lowestEntry?.normalPrice ??
+      null;
+
+    return {
+      displayCondition,
+      availableVariants,
+      activePrice,
+      normalPrice,
+      hasPromotion:
+        activePrice !== null &&
+        normalPrice !== null &&
+        activePrice <
+          normalPrice,
+    };
+  }
+
+  function priceMatchesFilter(
+    price: number | null
+  ) {
+    if (
+      priceFilter === "all"
+    ) {
+      return true;
+    }
+
+    if (
+      price === null ||
+      !Number.isFinite(
+        price
+      )
+    ) {
+      return false;
+    }
+
+    switch (priceFilter) {
+      case "under300":
+        return price < 300;
+
+      case "300to500":
+        return (
+          price >= 300 &&
+          price < 500
+        );
+
+      case "500to800":
+        return (
+          price >= 500 &&
+          price < 800
+        );
+
+      case "800plus":
+        return price >= 800;
+
+      default:
+        return true;
+    }
+  }
+
+  function getPriceFilterLabel(
+    item: PriceFilter
+  ) {
+    if (
+      language === "pt"
+    ) {
+      switch (item) {
+        case "under300":
+          return `Menos de ${formatPrice(300)}`;
+
+        case "300to500":
+          return `${formatPrice(300)}–${formatPrice(499)}`;
+
+        case "500to800":
+          return `${formatPrice(500)}–${formatPrice(799)}`;
+
+        case "800plus":
+          return `${formatPrice(800)}+`;
+
+        default:
+          return "Qualquer preço";
+      }
+    }
+
+    switch (item) {
+      case "under300":
+        return `Under ${formatPrice(300)}`;
+
+      case "300to500":
+        return `${formatPrice(300)}–${formatPrice(499)}`;
+
+      case "500to800":
+        return `${formatPrice(500)}–${formatPrice(799)}`;
+
+      case "800plus":
+        return `${formatPrice(800)}+`;
+
+      default:
+        return "Any price";
+    }
+  }
 
   /* =========================================================
      FILTER PRODUCTS
   ========================================================= */
 
   const filteredPhones =
-    useMemo(
-      () => {
-        const q =
-          query
-            .trim()
-            .toLowerCase();
+    useMemo(() => {
+      const q = query
+        .trim()
+        .toLowerCase();
 
-        return catalogItems.filter(
-          (
-            item
-          ) => {
-            const brandMatches =
-              brand ===
-                "all" ||
-              item.brand.toLowerCase() ===
-                brand;
+      return catalogItems.filter(
+        (item) => {
+          const brandMatches =
+            brand === "all" ||
+            item.brand.toLowerCase() ===
+              brand;
 
-            const conditionMatches =
-              condition ===
-                "all" ||
-              item.condition ===
-                condition;
-
-            const queryMatches =
-              !q ||
-              item.name
-                .toLowerCase()
-                .includes(
-                  q
-                ) ||
-              item.brand
-                .toLowerCase()
-                .includes(
-                  q
-                ) ||
-              item.live.model
-                ?.toLowerCase()
-                .includes(
-                  q
-                ) ||
-              item.live.storage
-                ?.toLowerCase()
-                .includes(
-                  q
-                ) ||
-              item.live.color
-                ?.toLowerCase()
-                .includes(
-                  q
-                );
-
-            return (
-              brandMatches &&
-              conditionMatches &&
-              queryMatches
+          const sellConditions =
+            getProductSellConditions(
+              item.live
             );
-          }
-        );
-      },
-      [
-        catalogItems,
-        brand,
-        condition,
-        query,
-      ]
-    );
+
+          const conditionMatches =
+            condition === "all"
+              ? true
+              : condition === "used"
+                ? item.condition ===
+                  "used"
+                : sellConditions.includes(
+                    condition as
+                      PublicSellCondition
+                  );
+
+          const queryMatches =
+            !q ||
+            item.name
+              .toLowerCase()
+              .includes(q) ||
+            item.brand
+              .toLowerCase()
+              .includes(q) ||
+            item.live.model
+              ?.toLowerCase()
+              .includes(q) ||
+            item.live.storage
+              ?.toLowerCase()
+              .includes(q) ||
+            item.live.color
+              ?.toLowerCase()
+              .includes(q);
+
+          const {
+            activePrice,
+          } =
+            getCatalogItemPricing(
+              item
+            );
+
+          const priceMatches =
+            priceMatchesFilter(
+              activePrice
+            );
+
+          return (
+            brandMatches &&
+            conditionMatches &&
+            queryMatches &&
+            priceMatches
+          );
+        }
+      );
+    }, [
+      catalogItems,
+      brand,
+      condition,
+      priceFilter,
+      query,
+      variantsByProductId,
+    ]);
+
+  const hasActiveFilters =
+    query.trim().length > 0 ||
+    brand !== "all" ||
+    condition !== "all" ||
+    priceFilter !== "all";
+
+  const activeFilterCount =
+    [
+      brand !== "all",
+      condition !== "all",
+      priceFilter !== "all",
+    ].filter(Boolean).length;
+
+  const collapsedFilterSummary =
+    [
+      brand !== "all"
+        ? formatBrandLabel(
+            brand
+          )
+        : null,
+
+      condition !== "all"
+        ? getConditionLabel(
+            condition
+          )
+        : null,
+
+      priceFilter !== "all"
+        ? getPriceFilterLabel(
+            priceFilter
+          )
+        : null,
+    ]
+      .filter(
+        (
+          item
+        ): item is string =>
+          Boolean(item)
+      )
+      .join(" · ");
+
+  function resetAllFilters() {
+    setQuery("");
+    setBrand("all");
+    setCondition("all");
+    setPriceFilter("all");
+  }
 
   /* =========================================================
      IMAGE FAILURE HANDLER
@@ -396,16 +782,719 @@ export default function CatalogScreen() {
     productId: string
   ) {
     setFailedImages(
-      (
-        current
-      ) => ({
+      (current) => ({
         ...current,
-
-        [productId]:
-          true,
+        [productId]: true,
       })
     );
   }
+
+  /* =========================================================
+     CONDITION LABEL
+  ========================================================= */
+
+  function getConditionLabel(
+    item: ConditionFilter
+  ) {
+    switch (item) {
+      case "new":
+        return t.catalog.new;
+
+      case "refurbished":
+        return t.catalog.refurbished;
+
+      case "used":
+        return t.catalog.used;
+
+      default:
+        return t.catalog.all;
+    }
+  }
+
+
+  /* =========================================================
+     MOBILE GROUPS
+
+     On mobile the catalogue is grouped by brand so customers
+     can browse sideways instead of scrolling through one long
+     vertical stack of product cards.
+  ========================================================= */
+
+  const mobileGroups =
+    useMemo(() => {
+      const groups =
+        new Map<
+          string,
+          CatalogItem[]
+        >();
+
+      filteredPhones.forEach(
+        (item) => {
+          const key =
+            item.brand
+              .trim()
+              .toLowerCase() ||
+            "other";
+
+          const current =
+            groups.get(key) ?? [];
+
+          current.push(item);
+
+          groups.set(
+            key,
+            current
+          );
+        }
+      );
+
+      return Array.from(
+        groups.entries()
+      ).sort(
+        ([a], [b]) =>
+          a.localeCompare(b)
+      );
+    }, [filteredPhones]);
+
+  function getResultsLabel(
+    count: number
+  ) {
+    if (language === "pt") {
+      return count === 1
+        ? "1 modelo"
+        : `${count} modelos`;
+    }
+
+    return count === 1
+      ? "1 model"
+      : `${count} models`;
+  }
+
+  function renderCatalogCard(
+    item: CatalogItem,
+    compact = false
+  ) {
+    const live =
+      item.live;
+
+    const legacy =
+      item.legacyPhone;
+
+    const {
+      displayCondition,
+      availableVariants,
+      activePrice,
+      normalPrice,
+      hasPromotion,
+    } =
+      getCatalogItemPricing(
+        item
+      );
+
+    /*
+     * CONDITION BADGES
+     *
+     * These describe every condition enabled for the product
+     * in Supabase, not merely the condition currently being
+     * used to calculate the card price.
+     */
+    const cardConditions:
+      Array<
+        "new" |
+        "refurbished" |
+        "used"
+      > =
+        item.condition ===
+        "used"
+          ? ["used"]
+          : getProductSellConditions(
+              live
+            );
+
+    /*
+     * AVAILABILITY SOURCE OF TRUTH:
+     * Supabase product + product_variants availability flags.
+     */
+    const availableFromSupabase =
+      Boolean(
+        live.published &&
+        live.available &&
+        availableVariants.length >
+          0
+      );
+
+    /*
+     * Purchasability is stricter than availability:
+     * a valid price must exist for the condition being shown.
+     */
+    const purchasable =
+      Boolean(
+        availableFromSupabase &&
+        activePrice !== null
+      );
+
+    const hasWorkingLiveImage =
+      Boolean(
+        live.image_url
+      ) &&
+      !failedImages[
+        item.id
+      ];
+
+    return (
+      <Link
+        key={item.id}
+        href={
+          `/product/${item.slug}` as any
+        }
+        asChild
+      >
+        <Pressable
+          style={StyleSheet.flatten([
+            styles.card,
+
+            compact &&
+              styles.cardCompact,
+
+            compact && {
+              width:
+                mobileCardWidth,
+            },
+          ])}
+        >
+          <View
+            style={[
+              styles.cardTop,
+              compact &&
+                styles.cardTopCompact,
+            ]}
+          >
+            <Text
+              numberOfLines={1}
+              style={
+                styles.cardBrand
+              }
+            >
+              {item.brand.toUpperCase()}
+            </Text>
+
+            <View
+              style={
+                styles.badges
+              }
+            >
+              {hasPromotion ? (
+                <Text
+                  style={[
+                    styles.promotionBadge,
+                    compact &&
+                      styles.badgeCompact,
+                  ]}
+                >
+                  {
+                    t.catalog
+                      .sale
+                  }
+                </Text>
+              ) : null}
+
+              {cardConditions.map(
+                (
+                  cardCondition
+                ) => (
+                  <Text
+                    key={
+                      cardCondition
+                    }
+                    style={[
+                      styles.condition,
+
+                      compact &&
+                        styles.badgeCompact,
+
+                      cardCondition ===
+                      "new"
+                        ? styles.new
+                        : cardCondition ===
+                            "used"
+                          ? styles.used
+                          : styles.refurbished,
+                    ]}
+                  >
+                    {cardCondition ===
+                    "new"
+                      ? t.catalog.new.toUpperCase()
+                      : cardCondition ===
+                          "used"
+                        ? t.catalog.used.toUpperCase()
+                        : t.catalog.refurbished.toUpperCase()}
+                  </Text>
+                )
+              )}
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.phoneStage,
+              compact &&
+                styles.phoneStageCompact,
+            ]}
+          >
+            {hasWorkingLiveImage ? (
+              <Image
+                source={{
+                  uri:
+                    live.image_url!,
+                }}
+                style={[
+                  styles.productImage,
+                  compact &&
+                    styles.productImageCompact,
+                ]}
+                resizeMode="contain"
+                onError={(
+                  event
+                ) => {
+                  console.error(
+                    "Product image failed to load:",
+                    {
+                      product:
+                        item.name,
+
+                      image_url:
+                        live.image_url,
+
+                      error:
+                        event
+                          .nativeEvent
+                          .error,
+                    }
+                  );
+
+                  markImageFailed(
+                    item.id
+                  );
+                }}
+              />
+            ) : legacy ? (
+              <PhoneVisual
+                phone={legacy}
+                variant="card"
+              />
+            ) : (
+              <View
+                style={[
+                  styles.imagePlaceholder,
+
+                  compact &&
+                    styles.imagePlaceholderCompact,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.imagePlaceholderBrand,
+
+                    compact &&
+                      styles.imagePlaceholderBrandCompact,
+                  ]}
+                >
+                  {item.brand
+                    .slice(
+                      0,
+                      1
+                    )
+                    .toUpperCase()}
+                </Text>
+
+                <Text
+                  style={
+                    styles.imagePlaceholderText
+                  }
+                >
+                  {
+                    t.catalog
+                      .imageComingSoon
+                  }
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <Text
+            numberOfLines={
+              compact
+                ? 1
+                : 2
+            }
+            style={[
+              styles.cardName,
+              compact &&
+                styles.cardNameCompact,
+            ]}
+          >
+            {item.name}
+          </Text>
+
+          <Text
+            numberOfLines={
+              compact
+                ? 1
+                : 2
+            }
+            style={[
+              styles.cardSpec,
+              compact &&
+                styles.cardSpecCompact,
+            ]}
+          >
+            {legacy
+              ? `${legacy.specs.screen} · ${legacy.specs.chip}`
+              : [
+                  live.storage,
+                  live.color,
+                ]
+                  .filter(
+                    Boolean
+                  )
+                  .join(
+                    " · "
+                  ) ||
+                t.catalog
+                  .smartphone}
+          </Text>
+
+          {!compact ? (
+            <>
+              {legacy &&
+              legacy.colors.length >
+                0 ? (
+                <View
+                  style={
+                    styles.colorRow
+                  }
+                >
+                  {legacy.colors
+                    .slice(0, 4)
+                    .map(
+                      (color) => (
+                        <View
+                          key={
+                            color.name
+                          }
+                          style={[
+                            styles.colorDot,
+                            {
+                              backgroundColor:
+                                color.hex,
+                            },
+                          ]}
+                        />
+                      )
+                    )}
+                </View>
+              ) : live.color ? (
+                <Text
+                  style={
+                    styles.singleColor
+                  }
+                >
+                  {live.color}
+                </Text>
+              ) : (
+                <View
+                  style={
+                    styles.colorSpacer
+                  }
+                />
+              )}
+
+              <View
+                style={
+                  styles.statusRow
+                }
+              >
+                <View
+                  style={
+                    styles.availabilityRow
+                  }
+                >
+                  <View
+                    style={[
+                      styles.availabilityDot,
+
+                      availableFromSupabase
+                        ? styles.availabilityDotAvailable
+                        : styles.availabilityDotUnavailable,
+                    ]}
+                  />
+
+                  <Text
+                    style={
+                      availableFromSupabase
+                        ? styles.availableText
+                        : styles.unavailableText
+                    }
+                  >
+                    {availableFromSupabase
+                      ? t.catalog
+                          .available
+                      : t.catalog
+                          .unavailable}
+                  </Text>
+                </View>
+              </View>
+
+              <View
+                style={
+                  styles.purchaseMethods
+                }
+              >
+                {live.lease_enabled ? (
+                  <View
+                    style={
+                      styles.methodBadge
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.methodBadgeText
+                      }
+                    >
+                      {
+                        t.catalog
+                          .lease
+                      }
+                    </Text>
+                  </View>
+                ) : null}
+
+                {live.financing_enabled ? (
+                  <View
+                    style={
+                      styles.methodBadge
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.methodBadgeText
+                      }
+                    >
+                      {
+                        t.catalog
+                          .financing
+                      }
+                    </Text>
+                  </View>
+                ) : null}
+
+                {live.insurance_enabled ? (
+                  <View
+                    style={
+                      styles.methodBadge
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.methodBadgeText
+                      }
+                    >
+                      {
+                        t.catalog
+                          .insurance
+                      }
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            </>
+          ) : (
+            <View
+              style={
+                styles.compactStatusRow
+              }
+            >
+              <View
+                style={[
+                  styles.availabilityDot,
+
+                  availableFromSupabase
+                    ? styles.availabilityDotAvailable
+                    : styles.availabilityDotUnavailable,
+                ]}
+              />
+
+              <Text
+                numberOfLines={1}
+                style={
+                  availableFromSupabase
+                    ? styles.availableTextCompact
+                    : styles.unavailableTextCompact
+                }
+              >
+                {availableFromSupabase
+                  ? t.catalog
+                      .available
+                  : t.catalog
+                      .unavailable}
+              </Text>
+            </View>
+          )}
+
+          <View
+            style={[
+              styles.cardFooter,
+              compact &&
+                styles.cardFooterCompact,
+            ]}
+          >
+            <View
+              style={
+                styles.priceBlock
+              }
+            >
+              <Text
+                style={[
+                  styles.buyLabel,
+                  compact &&
+                    styles.buyLabelCompact,
+                ]}
+              >
+                {
+                  t.catalog
+                    .buyNow
+                }
+              </Text>
+
+              {hasPromotion ? (
+                <Text
+                  style={[
+                    styles.oldPrice,
+                    compact &&
+                      styles.oldPriceCompact,
+                  ]}
+                >
+                  {normalPrice !== null
+                    ? formatPrice(
+                        normalPrice
+                      )
+                    : ""}
+                </Text>
+              ) : null}
+
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.buyMainPrice,
+                  compact &&
+                    styles.buyMainPriceCompact,
+                ]}
+              >
+                {activePrice !== null
+                  ? formatPrice(
+                      activePrice
+                    )
+                  : "—"}
+              </Text>
+
+              {!compact &&
+              live.lease_enabled &&
+              live.lease_monthly_price !==
+                null ? (
+                <Text
+                  style={
+                    styles.optionPriceText
+                  }
+                >
+                  {
+                    t.catalog
+                      .leaseFrom
+                  }{" "}
+                  {formatPrice(
+                    live.lease_monthly_price
+                  )}
+                  {
+                    t.catalog
+                      .perMonth
+                  }
+                </Text>
+              ) : null}
+
+              {!compact &&
+              live.financing_enabled &&
+              live.financing_monthly_price !==
+                null ? (
+                <Text
+                  style={
+                    styles.optionPriceText
+                  }
+                >
+                  {
+                    t.catalog
+                      .financingFrom
+                  }{" "}
+                  {formatPrice(
+                    live.financing_monthly_price
+                  )}
+                  {
+                    t.catalog
+                      .perMonth
+                  }
+                </Text>
+              ) : null}
+
+              {!compact &&
+              live.insurance_enabled &&
+              live.insurance_monthly_price !==
+                null ? (
+                <Text
+                  style={
+                    styles.optionPriceText
+                  }
+                >
+                  {
+                    t.catalog
+                      .insuranceFrom
+                  }{" "}
+                  {formatPrice(
+                    live.insurance_monthly_price
+                  )}
+                  {
+                    t.catalog
+                      .perMonth
+                  }
+                </Text>
+              ) : null}
+            </View>
+
+            <View
+              style={[
+                styles.viewButton,
+
+                compact &&
+                  styles.viewButtonCompact,
+
+                !purchasable &&
+                  styles.viewButtonDisabled,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.viewButtonText,
+
+                  compact &&
+                    styles.viewButtonTextCompact,
+                ]}
+              >
+                {t.catalog.view}
+              </Text>
+            </View>
+          </View>
+        </Pressable>
+      </Link>
+    );
+  }
+
 
   /* =========================================================
      RENDER
@@ -416,71 +1505,102 @@ export default function CatalogScreen() {
       style={
         styles.screen
       }
-      contentContainerStyle={
-        styles.content
+      contentContainerStyle={[
+        styles.content,
+        isMobile &&
+          styles.contentMobile,
+      ]}
+      showsVerticalScrollIndicator={
+        false
       }
     >
       <View
-        style={
-          styles.header
-        }
-      >
-        <Link
-          href={
-            "/" as any
-          }
-          asChild
-        >
-          <Pressable>
-            <Text
-              style={
-                styles.back
-              }
-            >
-              ← Back
-            </Text>
-          </Pressable>
-        </Link>
+        style={[
+          isMobile
+            ? styles.mobileHeaderSafeArea
+            : undefined,
 
-        <Text
-          style={
-            styles.logo
-          }
-        >
-          LUMINA
-        </Text>
+          isMobile
+            ? {
+                paddingTop:
+                  Math.max(
+                    insets.top,
+                    44
+                  ) + 6,
+              }
+            : undefined,
+        ]}
+      >
+        <Header
+          showBack
+          backHref="/"
+        />
       </View>
 
+      {/* =====================================================
+          COMPACT HERO
+      ===================================================== */}
+
       <View
-        style={
-          styles.hero
-        }
+        style={[
+          styles.hero,
+          isMobile &&
+            styles.heroMobile,
+        ]}
       >
-        <Text
-          style={
-            styles.kicker
-          }
+        <View
+          style={[
+            styles.heroTopRow,
+            isMobile &&
+              styles.heroTopRowMobile,
+          ]}
         >
-          CATALOG
-        </Text>
+          <Text
+            style={[
+              styles.kicker,
+              isMobile &&
+                styles.kickerMobile,
+            ]}
+          >
+            {t.catalog.kicker}
+          </Text>
+
+          {!loadingProducts &&
+          !productsError ? (
+            <Text
+              style={
+                styles.resultCount
+              }
+            >
+              {getResultsLabel(
+                filteredPhones.length
+              )}
+            </Text>
+          ) : null}
+        </View>
 
         <Text
-          style={
-            styles.title
-          }
+          style={[
+            styles.title,
+            isMobile &&
+              styles.titleMobile,
+          ]}
         >
-          Choose your phone.
+          {t.catalog.title}
         </Text>
 
-        <Text
-          style={
-            styles.text
-          }
-        >
-          Browse new and refurbished smartphones.
-          Filter by brand, condition, or search by
-          model.
-        </Text>
+        {!isMobile ? (
+          <Text
+            style={
+              styles.text
+            }
+          >
+            {
+              t.catalog
+                .description
+            }
+          </Text>
+        ) : null}
 
         {loadingProducts ? (
           <View
@@ -497,7 +1617,10 @@ export default function CatalogScreen() {
                 styles.syncText
               }
             >
-              Updating prices and availability...
+              {
+                t.catalog
+                  .updating
+              }
             </Text>
           </View>
         ) : productsError ? (
@@ -510,154 +1633,404 @@ export default function CatalogScreen() {
               productsError
             }
           </Text>
-        ) : (
+        ) : !isMobile ? (
           <Text
             style={
               styles.syncText
             }
           >
-            Live prices and stock updated
+            {
+              t.catalog
+                .updated
+            }
           </Text>
-        )}
+        ) : null}
       </View>
 
       {/* =====================================================
-          CONTROLS
+          SEARCH + COLLAPSIBLE FILTERS
       ===================================================== */}
 
       <View
-        style={
-          styles.controls
-        }
+        style={[
+          styles.controls,
+          isMobile &&
+            styles.controlsMobile,
+        ]}
       >
         <TextInput
-          value={
-            query
-          }
+          value={query}
           onChangeText={
             setQuery
           }
-          placeholder="Search model..."
+          placeholder={
+            t.catalog
+              .searchPlaceholder
+          }
           placeholderTextColor={
             colors.ink40
           }
-          style={
-            styles.input
-          }
+          style={[
+            styles.input,
+            isMobile &&
+              styles.inputMobile,
+          ]}
         />
 
         <View
           style={
-            styles.filterGroup
+            styles.filterToggleRow
           }
         >
-          {brands.map(
-            (
-              item
-            ) => {
-              const active =
-                brand ===
-                item;
-
-              return (
-                <Pressable
-                  key={
-                    item
-                  }
-                  onPress={() =>
-                    setBrand(
-                      item
-                    )
-                  }
-                  style={[
-                    styles.chip,
-
-                    active &&
-                      styles.chipActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.chipText,
-
-                      active &&
-                        styles.chipTextActive,
-                    ]}
-                  >
-                    {item ===
-                    "all"
-                      ? "All"
-                      : formatBrandLabel(
-                          item
-                        )}
-                  </Text>
-                </Pressable>
-              );
+          <Pressable
+            onPress={() =>
+              setShowFilters(
+                (current) =>
+                  !current
+              )
             }
-          )}
+            style={
+              styles.filterToggleButton
+            }
+          >
+            <View
+              style={
+                styles.filterToggleCopy
+              }
+            >
+              <View
+                style={
+                  styles.filterToggleTitleRow
+                }
+              >
+                <Text
+                  style={
+                    styles.filterToggleTitle
+                  }
+                >
+                  {language === "pt"
+                    ? "Filtros"
+                    : "Filters"}
+                </Text>
+
+                {activeFilterCount >
+                0 ? (
+                  <View
+                    style={
+                      styles.activeFilterCount
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.activeFilterCountText
+                      }
+                    >
+                      {
+                        activeFilterCount
+                      }
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+
+              <Text
+                numberOfLines={1}
+                style={
+                  styles.filterToggleSummary
+                }
+              >
+                {collapsedFilterSummary
+                  ? collapsedFilterSummary
+                  : language === "pt"
+                    ? "Marca, condição e preço"
+                    : "Brand, condition and price"}
+              </Text>
+            </View>
+
+            <Text
+              style={[
+                styles.filterToggleChevron,
+                showFilters &&
+                  styles.filterToggleChevronOpen,
+              ]}
+            >
+              ⌄
+            </Text>
+          </Pressable>
+
+          {hasActiveFilters ? (
+            <Pressable
+              onPress={
+                resetAllFilters
+              }
+              style={
+                styles.clearFiltersButton
+              }
+            >
+              <Text
+                style={
+                  styles.clearFiltersText
+                }
+              >
+                {language === "pt"
+                  ? "Limpar"
+                  : "Clear"}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
 
-        <View
-          style={
-            styles.filterGroup
-          }
-        >
-          {(
-            [
-              "all",
-              "new",
-              "refurbished",
-              "used",
-            ] as ConditionFilter[]
-          ).map(
-            (
-              item
-            ) => {
-              const active =
-                condition ===
-                item;
+        {showFilters ? (
+          <View
+            style={[
+              styles.filterGroups,
+              isMobile &&
+                styles.filterGroupsMobile,
+            ]}
+          >
+            {/* BRAND */}
 
-              return (
-                <Pressable
-                  key={
-                    item
+            <View
+              style={[
+                styles.filterGroup,
+                styles.filterGroupBrand,
+                isMobile &&
+                  styles.filterGroupMobile,
+              ]}
+            >
+              <Text
+                style={
+                  styles.filterGroupLabel
+                }
+              >
+                {language === "pt"
+                  ? "MARCA"
+                  : "BRAND"}
+              </Text>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={
+                  false
+                }
+                contentContainerStyle={
+                  styles.filterRail
+                }
+                keyboardShouldPersistTaps="handled"
+              >
+                {brands.map(
+                  (item) => {
+                    const active =
+                      brand === item;
+
+                    return (
+                      <Pressable
+                        key={item}
+                        onPress={() =>
+                          setBrand(
+                            item
+                          )
+                        }
+                        style={[
+                          styles.chip,
+                          isMobile &&
+                            styles.chipMobile,
+                          active &&
+                            styles.chipActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.chipText,
+                            isMobile &&
+                              styles.chipTextMobile,
+                            active &&
+                              styles.chipTextActive,
+                          ]}
+                        >
+                          {item === "all"
+                            ? language ===
+                              "pt"
+                              ? "Todas"
+                              : "All brands"
+                            : formatBrandLabel(
+                                item
+                              )}
+                        </Text>
+                      </Pressable>
+                    );
                   }
-                  onPress={() =>
-                    setCondition(
-                      item
-                    )
+                )}
+              </ScrollView>
+            </View>
+
+            {/* CONDITION */}
+
+            <View
+              style={[
+                styles.filterGroup,
+                styles.filterGroupCondition,
+                isMobile &&
+                  styles.filterGroupMobile,
+              ]}
+            >
+              <Text
+                style={
+                  styles.filterGroupLabel
+                }
+              >
+                {language === "pt"
+                  ? "CONDIÇÃO"
+                  : "CONDITION"}
+              </Text>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={
+                  false
+                }
+                contentContainerStyle={
+                  styles.filterRail
+                }
+                keyboardShouldPersistTaps="handled"
+              >
+                {(
+                  [
+                    "all",
+                    "new",
+                    "refurbished",
+                  ] as ConditionFilter[]
+                ).map(
+                  (item) => {
+                    const active =
+                      condition ===
+                      item;
+
+                    return (
+                      <Pressable
+                        key={item}
+                        onPress={() =>
+                          setCondition(
+                            item
+                          )
+                        }
+                        style={[
+                          styles.chip,
+                          isMobile &&
+                            styles.chipMobile,
+                          active &&
+                            styles.chipActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.chipText,
+                            isMobile &&
+                              styles.chipTextMobile,
+                            active &&
+                              styles.chipTextActive,
+                          ]}
+                        >
+                          {item === "all"
+                            ? language ===
+                              "pt"
+                              ? "Todas"
+                              : "All"
+                            : getConditionLabel(
+                                item
+                              )}
+                        </Text>
+                      </Pressable>
+                    );
                   }
-                  style={[
-                    styles.chip,
+                )}
+              </ScrollView>
+            </View>
 
-                    active &&
-                      styles.chipActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.chipText,
+            {/* PRICE */}
 
-                      active &&
-                        styles.chipTextActive,
-                    ]}
-                  >
-                    {item ===
-                    "all"
-                      ? "All"
-                      : item ===
-                          "new"
-                        ? "New"
-                        : item ===
-                            "refurbished"
-                          ? "Refurbished"
-                          : "Used"}
-                  </Text>
-                </Pressable>
-              );
-            }
-          )}
-        </View>
+            <View
+              style={[
+                styles.filterGroup,
+                styles.filterGroupPrice,
+                isMobile &&
+                  styles.filterGroupMobile,
+              ]}
+            >
+              <Text
+                style={
+                  styles.filterGroupLabel
+                }
+              >
+                {language === "pt"
+                  ? "PREÇO"
+                  : "PRICE"}
+              </Text>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={
+                  false
+                }
+                contentContainerStyle={
+                  styles.filterRail
+                }
+                keyboardShouldPersistTaps="handled"
+              >
+                {(
+                  [
+                    "all",
+                    "under300",
+                    "300to500",
+                    "500to800",
+                    "800plus",
+                  ] as PriceFilter[]
+                ).map(
+                  (item) => {
+                    const active =
+                      priceFilter ===
+                      item;
+
+                    return (
+                      <Pressable
+                        key={
+                          `price-${item}`
+                        }
+                        onPress={() =>
+                          setPriceFilter(
+                            item
+                          )
+                        }
+                        style={[
+                          styles.chip,
+                          styles.priceChip,
+                          isMobile &&
+                            styles.chipMobile,
+                          active &&
+                            styles.chipActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.chipText,
+                            isMobile &&
+                              styles.chipTextMobile,
+                            active &&
+                              styles.chipTextActive,
+                          ]}
+                        >
+                          {getPriceFilterLabel(
+                            item
+                          )}
+                        </Text>
+                      </Pressable>
+                    );
+                  }
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        ) : null}
       </View>
 
       {/* =====================================================
@@ -666,9 +2039,11 @@ export default function CatalogScreen() {
 
       {loadingProducts ? (
         <View
-          style={
-            styles.empty
-          }
+          style={[
+            styles.empty,
+            isMobile &&
+              styles.emptyMobile,
+          ]}
         >
           <ActivityIndicator
             size="large"
@@ -679,22 +2054,30 @@ export default function CatalogScreen() {
               styles.loadingTitle
             }
           >
-            Loading catalogue...
+            {
+              t.catalog
+                .loading
+            }
           </Text>
         </View>
       ) : filteredPhones.length ===
         0 ? (
         <View
-          style={
-            styles.empty
-          }
+          style={[
+            styles.empty,
+            isMobile &&
+              styles.emptyMobile,
+          ]}
         >
           <Text
             style={
               styles.emptyTitle
             }
           >
-            No phones found.
+            {
+              t.catalog
+                .noProducts
+            }
           </Text>
 
           <Text
@@ -702,9 +2085,96 @@ export default function CatalogScreen() {
               styles.emptyText
             }
           >
-            Try another brand, condition,
-            or search term.
+            {
+              t.catalog
+                .noProductsDescription
+            }
           </Text>
+        </View>
+      ) : isMobile ? (
+        <View
+          style={
+            styles.mobileCatalog
+          }
+        >
+          {mobileGroups.map(
+            ([
+              brandKey,
+              items,
+            ]) => (
+              <View
+                key={
+                  brandKey
+                }
+                style={
+                  styles.mobileSection
+                }
+              >
+                <View
+                  style={
+                    styles.mobileSectionHeader
+                  }
+                >
+                  <View>
+                    <Text
+                      style={
+                        styles.mobileSectionKicker
+                      }
+                    >
+                      {
+                        formatBrandLabel(
+                          brandKey
+                        )
+                      }
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.mobileSectionCount
+                      }
+                    >
+                      {getResultsLabel(
+                        items.length
+                      )}
+                    </Text>
+                  </View>
+
+                  <Text
+                    style={
+                      styles.swipeHint
+                    }
+                  >
+                    →
+                  </Text>
+                </View>
+
+                <ScrollView
+                  horizontal
+                  nestedScrollEnabled
+                  showsHorizontalScrollIndicator={
+                    false
+                  }
+                  decelerationRate="fast"
+                  snapToInterval={
+                    mobileCardWidth +
+                    12
+                  }
+                  snapToAlignment="start"
+                  contentContainerStyle={
+                    styles.mobileProductRail
+                  }
+                >
+                  {items.map(
+                    (item) =>
+                      renderCatalogCard(
+                        item,
+                        true
+                      )
+                  )}
+                </ScrollView>
+              </View>
+            )
+          )}
         </View>
       ) : (
         <View
@@ -713,492 +2183,11 @@ export default function CatalogScreen() {
           }
         >
           {filteredPhones.map(
-            (
-              item
-            ) => {
-              const live =
-                item.live;
-
-              const legacy =
-                item.legacyPhone;
-
-              const hasPromotion =
-                productHasPromotion(
-                  live
-                );
-
-              const purchasable =
-                productIsPurchasable(
-                  live
-                );
-
-              const activePrice =
-                getActiveProductPrice(
-                  live
-                );
-
-              /*
-               * Use uploaded dashboard image
-               * unless loading it previously failed.
-               */
-              const hasWorkingLiveImage =
-                Boolean(
-                  live.image_url
-                ) &&
-                !failedImages[
-                  item.id
-                ];
-
-              return (
-                <Link
-                  key={
-                    item.id
-                  }
-                  href={
-                    `/product/${item.slug}` as any
-                  }
-                  asChild
-                >
-                  <Pressable
-                    style={
-                      styles.card
-                    }
-                  >
-                    {/* =================================================
-                        HEADER
-                    ================================================= */}
-
-                    <View
-                      style={
-                        styles.cardTop
-                      }
-                    >
-                      <Text
-                        style={
-                          styles.cardBrand
-                        }
-                      >
-                        {item.brand.toUpperCase()}
-                      </Text>
-
-                      <View
-                        style={
-                          styles.badges
-                        }
-                      >
-                        {hasPromotion ? (
-                          <Text
-                            style={
-                              styles.promotionBadge
-                            }
-                          >
-                            SALE
-                          </Text>
-                        ) : null}
-
-                        <Text
-                          style={[
-                            styles.condition,
-
-                            item.condition ===
-                            "new"
-                              ? styles.new
-                              : item.condition ===
-                                  "used"
-                                ? styles.used
-                                : styles.refurbished,
-                          ]}
-                        >
-                          {item.condition ===
-                          "new"
-                            ? "NEW"
-                            : item.condition ===
-                                "used"
-                              ? "USED"
-                              : "REFURB."}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* =================================================
-                        IMAGE
-                    ================================================= */}
-
-                    <View
-                      style={
-                        styles.phoneStage
-                      }
-                    >
-                      {hasWorkingLiveImage ? (
-                        <Image
-                          source={{
-                            uri:
-                              live.image_url!,
-                          }}
-                          style={
-                            styles.productImage
-                          }
-                          resizeMode="contain"
-                          onError={(
-                            event
-                          ) => {
-                            console.error(
-                              "Product image failed to load:",
-                              {
-                                product:
-                                  item.name,
-
-                                image_url:
-                                  live.image_url,
-
-                                error:
-                                  event
-                                    .nativeEvent
-                                    .error,
-                              }
-                            );
-
-                            markImageFailed(
-                              item.id
-                            );
-                          }}
-                        />
-                      ) : legacy ? (
-                        <PhoneVisual
-                          phone={
-                            legacy
-                          }
-                          variant="card"
-                        />
-                      ) : (
-                        <View
-                          style={
-                            styles.imagePlaceholder
-                          }
-                        >
-                          <Text
-                            style={
-                              styles.imagePlaceholderBrand
-                            }
-                          >
-                            {item.brand
-                              .slice(
-                                0,
-                                1
-                              )
-                              .toUpperCase()}
-                          </Text>
-
-                          <Text
-                            style={
-                              styles.imagePlaceholderText
-                            }
-                          >
-                            Product image coming soon
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-
-                    {/* =================================================
-                        PRODUCT INFO
-                    ================================================= */}
-
-                    <Text
-                      style={
-                        styles.cardName
-                      }
-                    >
-                      {
-                        item.name
-                      }
-                    </Text>
-
-                    <Text
-                      style={
-                        styles.cardSpec
-                      }
-                    >
-                      {legacy
-                        ? `${legacy.specs.screen} · ${legacy.specs.chip}`
-                        : [
-                            live.storage,
-                            live.color,
-                          ]
-                            .filter(
-                              Boolean
-                            )
-                            .join(
-                              " · "
-                            ) ||
-                          "Smartphone"}
-                    </Text>
-
-                    {/* =================================================
-                        COLORS
-                    ================================================= */}
-
-                    {legacy &&
-                    legacy.colors.length >
-                      0 ? (
-                      <View
-                        style={
-                          styles.colorRow
-                        }
-                      >
-                        {legacy.colors
-                          .slice(
-                            0,
-                            4
-                          )
-                          .map(
-                            (
-                              color
-                            ) => (
-                              <View
-                                key={
-                                  color.name
-                                }
-                                style={[
-                                  styles.colorDot,
-
-                                  {
-                                    backgroundColor:
-                                      color.hex,
-                                  },
-                                ]}
-                              />
-                            )
-                          )}
-                      </View>
-                    ) : live.color ? (
-                      <Text
-                        style={
-                          styles.singleColor
-                        }
-                      >
-                        {
-                          live.color
-                        }
-                      </Text>
-                    ) : (
-                      <View
-                        style={
-                          styles.colorSpacer
-                        }
-                      />
-                    )}
-
-                    {/* =================================================
-                        STOCK
-                    ================================================= */}
-
-                    <View
-                      style={
-                        styles.statusRow
-                      }
-                    >
-                      {!live.available ? (
-                        <Text
-                          style={
-                            styles.unavailableText
-                          }
-                        >
-                          Currently unavailable
-                        </Text>
-                      ) : live.stock >
-                        0 ? (
-                        <Text
-                          style={[
-                            styles.stockText,
-
-                            live.stock <=
-                              2 &&
-                              styles.lowStockText,
-                          ]}
-                        >
-                          {live.stock <=
-                          2
-                            ? `Only ${live.stock} left`
-                            : `${live.stock} in stock`}
-                        </Text>
-                      ) : (
-                        <Text
-                          style={
-                            styles.outOfStockText
-                          }
-                        >
-                          Out of stock
-                        </Text>
-                      )}
-                    </View>
-
-                    {/* =================================================
-                        PURCHASE METHODS
-                    ================================================= */}
-
-                    <View
-                      style={
-                        styles.purchaseMethods
-                      }
-                    >
-                      {live.lease_enabled ? (
-                        <View
-                          style={
-                            styles.methodBadge
-                          }
-                        >
-                          <Text
-                            style={
-                              styles.methodBadgeText
-                            }
-                          >
-                            Lease
-                          </Text>
-                        </View>
-                      ) : null}
-
-                      {live.financing_enabled ? (
-                        <View
-                          style={
-                            styles.methodBadge
-                          }
-                        >
-                          <Text
-                            style={
-                              styles.methodBadgeText
-                            }
-                          >
-                            Financing
-                          </Text>
-                        </View>
-                      ) : null}
-
-                      {live.insurance_enabled ? (
-                        <View
-                          style={
-                            styles.methodBadge
-                          }
-                        >
-                          <Text
-                            style={
-                              styles.methodBadgeText
-                            }
-                          >
-                            Insurance
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
-
-                    {/* =================================================
-                        PRICE
-                    ================================================= */}
-
-                    <View
-                      style={
-                        styles.cardFooter
-                      }
-                    >
-                      <View
-                        style={
-                          styles.priceBlock
-                        }
-                      >
-                        <Text
-                          style={
-                            styles.buyLabel
-                          }
-                        >
-                          Buy now
-                        </Text>
-
-                        {hasPromotion ? (
-                          <Text
-                            style={
-                              styles.oldPrice
-                            }
-                          >
-                            {formatCurrency(
-                              live.sale_price
-                            )}
-                          </Text>
-                        ) : null}
-
-                        <Text
-                          style={
-                            styles.buyMainPrice
-                          }
-                        >
-                          {formatCurrency(
-                            activePrice
-                          )}
-                        </Text>
-
-                        {live.lease_enabled &&
-                        live.lease_monthly_price !==
-                          null ? (
-                          <Text
-                            style={
-                              styles.optionPriceText
-                            }
-                          >
-                            Lease from{" "}
-                            {formatCurrency(
-                              live.lease_monthly_price
-                            )}
-                            /mo
-                          </Text>
-                        ) : null}
-
-                        {live.financing_enabled &&
-                        live.financing_monthly_price !==
-                          null ? (
-                          <Text
-                            style={
-                              styles.optionPriceText
-                            }
-                          >
-                            Financing from{" "}
-                            {formatCurrency(
-                              live.financing_monthly_price
-                            )}
-                            /mo
-                          </Text>
-                        ) : null}
-
-                        {live.insurance_enabled &&
-                        live.insurance_monthly_price !==
-                          null ? (
-                          <Text
-                            style={
-                              styles.optionPriceText
-                            }
-                          >
-                            Insurance from{" "}
-                            {formatCurrency(
-                              live.insurance_monthly_price
-                            )}
-                            /mo
-                          </Text>
-                        ) : null}
-                      </View>
-
-                      <Text
-                        style={[
-                          styles.viewButton,
-
-                          !purchasable &&
-                            styles.viewButtonDisabled,
-                        ]}
-                      >
-                        View
-                      </Text>
-                    </View>
-                  </Pressable>
-                </Link>
-              );
-            }
+            (item) =>
+              renderCatalogCard(
+                item,
+                false
+              )
           )}
         </View>
       )}
@@ -1221,768 +2210,888 @@ const styles =
     content: {
       width: "100%",
       maxWidth: 1180,
-      alignSelf:
-        "center",
-      paddingHorizontal:
-        20,
-      paddingBottom:
-        42,
+      alignSelf: "center",
+      paddingHorizontal: 20,
+      paddingBottom: 42,
     },
 
-    header: {
-      paddingVertical:
-        18,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      justifyContent:
-        "space-between",
+    contentMobile: {
+      paddingHorizontal: 0,
+      paddingBottom: 34,
     },
 
-    back: {
-      color:
-        colors.ink70,
-      fontWeight:
-        "900",
-    },
-
-    logo: {
-      color:
-        colors.blue,
-      fontWeight:
-        "900",
-      letterSpacing:
-        2,
+    mobileHeaderSafeArea: {
+      paddingHorizontal: 16,
+      paddingBottom: 6,
+      backgroundColor:
+        colors.bg,
     },
 
     hero: {
-      marginBottom:
-        20,
+      marginTop: 28,
+      marginBottom: 20,
+    },
+
+    heroMobile: {
+      marginTop: 12,
+      marginBottom: 12,
+      paddingHorizontal: 16,
+    },
+
+    heroTopRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent:
+        "space-between",
+      gap: 12,
+    },
+
+    heroTopRowMobile: {
+      marginBottom: 5,
     },
 
     kicker: {
-      color:
-        colors.blue,
-      fontSize:
-        12,
-      fontWeight:
-        "900",
-      letterSpacing:
-        1.8,
-      marginBottom:
-        10,
+      color: colors.blue,
+      fontSize: 12,
+      fontWeight: "900",
+      letterSpacing: 1.8,
+      marginBottom: 10,
+    },
+
+    kickerMobile: {
+      marginBottom: 0,
+      fontSize: 10,
+      letterSpacing: 1.5,
     },
 
     title: {
-      fontSize:
-        46,
-      lineHeight:
-        50,
-      fontWeight:
-        "900",
-      color:
-        colors.ink,
-      letterSpacing:
-        -1.5,
+      fontSize: 46,
+      lineHeight: 50,
+      fontWeight: "900",
+      color: colors.ink,
+      letterSpacing: -1.5,
+    },
+
+    titleMobile: {
+      fontSize: 30,
+      lineHeight: 33,
+      letterSpacing: -1,
     },
 
     text: {
-      marginTop:
-        10,
-      color:
-        colors.ink70,
-      fontSize:
-        17,
-      lineHeight:
-        25,
-      maxWidth:
-        680,
+      marginTop: 10,
+      color: colors.ink70,
+      fontSize: 17,
+      lineHeight: 25,
+      maxWidth: 680,
+    },
+
+    resultCount: {
+      color: colors.ink40,
+      fontSize: 11,
+      fontWeight: "800",
     },
 
     connectionRow: {
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      gap:
-        8,
-      marginTop:
-        10,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      marginTop: 8,
     },
 
     syncText: {
-      marginTop:
-        10,
-      color:
-        colors.good,
-      fontSize:
-        12,
-      fontWeight:
-        "800",
+      marginTop: 8,
+      color: colors.good,
+      fontSize: 11,
+      fontWeight: "800",
     },
 
     errorText: {
-      marginTop:
-        10,
-      color:
-        "#B42318",
-      fontSize:
-        12,
-      fontWeight:
-        "800",
+      marginTop: 8,
+      color: "#B42318",
+      fontSize: 11,
+      fontWeight: "800",
     },
 
     controls: {
       backgroundColor:
         colors.white,
-      borderRadius:
-        24,
-      borderWidth:
-        1,
+      borderRadius: 28,
+      borderWidth: 1,
       borderColor:
         colors.ink12,
-      padding:
-        16,
-      gap:
-        12,
-      marginBottom:
-        20,
+      padding: 16,
+      gap: 14,
+      marginBottom: 22,
+
+      shadowColor: "#000",
+      shadowOpacity: 0.035,
+      shadowRadius: 18,
+      shadowOffset: {
+        width: 0,
+        height: 8,
+      },
+    },
+
+    controlsMobile: {
+      marginHorizontal: 12,
+      marginBottom: 16,
+      padding: 10,
+      borderRadius: 22,
+      gap: 9,
     },
 
     input: {
-      minHeight:
-        50,
+      minHeight: 52,
       backgroundColor:
         colors.bg,
-      borderRadius:
-        14,
-      paddingHorizontal:
-        14,
-      color:
-        colors.ink,
-      fontSize:
-        16,
+      borderRadius: 16,
+      paddingHorizontal: 16,
+      color: colors.ink,
+      fontSize: 16,
+      fontWeight: "700",
       outlineStyle:
         "none" as any,
     },
 
+    inputMobile: {
+      minHeight: 46,
+      fontSize: 14,
+      borderRadius: 14,
+    },
+
+    filterToggleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+
+    filterToggleButton: {
+      flex: 1,
+      minHeight: 54,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderRadius: 16,
+      backgroundColor:
+        colors.bg,
+      borderWidth: 1,
+      borderColor:
+        colors.ink06,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent:
+        "space-between",
+      gap: 12,
+    },
+
+    filterToggleCopy: {
+      flex: 1,
+      minWidth: 0,
+    },
+
+    filterToggleTitleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 7,
+    },
+
+    filterToggleTitle: {
+      color: colors.ink,
+      fontSize: 14,
+      fontWeight: "900",
+      letterSpacing: -0.2,
+    },
+
+    filterToggleSummary: {
+      color: colors.ink40,
+      fontSize: 11,
+      lineHeight: 15,
+      fontWeight: "700",
+      marginTop: 2,
+    },
+
+    activeFilterCount: {
+      minWidth: 20,
+      height: 20,
+      paddingHorizontal: 6,
+      borderRadius: 999,
+      backgroundColor:
+        colors.blue,
+      alignItems: "center",
+      justifyContent:
+        "center",
+    },
+
+    activeFilterCountText: {
+      color: colors.white,
+      fontSize: 10,
+      fontWeight: "900",
+    },
+
+    filterToggleChevron: {
+      color: colors.blue,
+      fontSize: 22,
+      lineHeight: 22,
+      fontWeight: "900",
+      transform: [
+        {
+          rotate: "0deg",
+        },
+      ],
+    },
+
+    filterToggleChevronOpen: {
+      transform: [
+        {
+          rotate: "180deg",
+        },
+      ],
+    },
+
+    clearFiltersButton: {
+      minHeight: 34,
+      paddingHorizontal: 12,
+      borderRadius: 999,
+      backgroundColor:
+        colors.white,
+      borderWidth: 1,
+      borderColor:
+        colors.ink12,
+      alignItems: "center",
+      justifyContent:
+        "center",
+    },
+
+    clearFiltersText: {
+      color: colors.blue,
+      fontSize: 11,
+      fontWeight: "900",
+    },
+
+    filterGroups: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 10,
+      alignItems: "stretch",
+    },
+
+    filterGroupsMobile: {
+      flexDirection: "column",
+      flexWrap: "nowrap",
+      gap: 8,
+    },
+
     filterGroup: {
-      flexDirection:
-        "row",
-      flexWrap:
-        "wrap",
-      gap:
-        8,
+      backgroundColor:
+        colors.bg,
+      borderRadius: 18,
+      paddingHorizontal: 11,
+      paddingTop: 10,
+      paddingBottom: 11,
+      borderWidth: 1,
+      borderColor:
+        colors.ink06,
+      minWidth: 0,
+    },
+
+    filterGroupBrand: {
+      flexGrow: 1,
+      flexBasis: 390,
+    },
+
+    filterGroupCondition: {
+      flexGrow: 1,
+      flexBasis: 285,
+    },
+
+    filterGroupPrice: {
+      flexGrow: 1,
+      flexBasis: 430,
+    },
+
+    filterGroupMobile: {
+      flexGrow: 0,
+      flexBasis: "auto",
+      width: "100%",
+      borderRadius: 16,
+      paddingHorizontal: 10,
+      paddingTop: 9,
+      paddingBottom: 10,
+    },
+
+    filterGroupLabel: {
+      color: colors.ink40,
+      fontSize: 9,
+      fontWeight: "900",
+      letterSpacing: 1.25,
+      marginBottom: 8,
+      paddingHorizontal: 2,
+    },
+
+    filterRail: {
+      gap: 7,
+      paddingRight: 6,
+      alignItems: "center",
     },
 
     chip: {
-      paddingHorizontal:
-        15,
-      paddingVertical:
-        10,
-      borderRadius:
-        999,
+      minHeight: 36,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 999,
       backgroundColor:
-        colors.bg,
-      borderWidth:
-        1,
+        colors.white,
+      borderWidth: 1,
       borderColor:
         colors.ink12,
+      alignItems: "center",
+      justifyContent:
+        "center",
+    },
+
+    chipMobile: {
+      minHeight: 34,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+    },
+
+    priceChip: {
+      minWidth: 76,
+    },
+
+    conditionChip: {
+      backgroundColor:
+        colors.white,
     },
 
     chipActive: {
       backgroundColor:
-        colors.ink,
+        colors.blue,
       borderColor:
-        colors.ink,
+        colors.blue,
+
+      shadowColor:
+        colors.blue,
+      shadowOpacity: 0.14,
+      shadowRadius: 8,
+      shadowOffset: {
+        width: 0,
+        height: 4,
+      },
     },
 
     chipText: {
-      color:
-        colors.ink70,
-      fontWeight:
-        "900",
+      color: colors.ink70,
+      fontSize: 12,
+      fontWeight: "900",
+    },
+
+    chipTextMobile: {
+      fontSize: 11,
     },
 
     chipTextActive: {
-      color:
-        colors.white,
+      color: colors.white,
+    },
+
+    mobileCatalog: {
+      gap: 20,
+    },
+
+    mobileSection: {
+      gap: 9,
+    },
+
+    mobileSectionHeader: {
+      paddingHorizontal: 16,
+      flexDirection: "row",
+      alignItems: "flex-end",
+      justifyContent:
+        "space-between",
+    },
+
+    mobileSectionKicker: {
+      color: colors.ink,
+      fontSize: 22,
+      lineHeight: 25,
+      fontWeight: "900",
+      letterSpacing: -0.6,
+    },
+
+    mobileSectionCount: {
+      marginTop: 2,
+      color: colors.ink40,
+      fontSize: 11,
+      fontWeight: "700",
+    },
+
+    swipeHint: {
+      color: colors.blue,
+      fontSize: 24,
+      fontWeight: "900",
+      lineHeight: 26,
+    },
+
+    mobileProductRail: {
+      paddingLeft: 16,
+      paddingRight: 28,
+      paddingBottom: 5,
+      gap: 12,
     },
 
     grid: {
-      flexDirection:
-        "row",
-      flexWrap:
-        "wrap",
-      gap:
-        16,
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 16,
     },
 
     card: {
       backgroundColor:
         colors.white,
-      borderRadius:
-        24,
-      padding:
-        18,
-      borderWidth:
-        1,
+      borderRadius: 24,
+      padding: 18,
+      borderWidth: 1,
       borderColor:
         colors.ink12,
-      flexGrow:
-        1,
-      flexBasis:
-        260,
-      maxWidth:
-        370,
-      minHeight:
-        500,
+      flexGrow: 1,
+      flexBasis: 260,
+      maxWidth: 370,
+      minHeight: 500,
 
-      shadowColor:
-        "#000",
-
-      shadowOpacity:
-        0.045,
-
-      shadowRadius:
-        14,
+      shadowColor: "#000",
+      shadowOpacity: 0.045,
+      shadowRadius: 14,
 
       shadowOffset: {
-        width:
-          0,
-
-        height:
-          10,
+        width: 0,
+        height: 10,
       },
     },
 
+    cardCompact: {
+      flexGrow: 0,
+      flexBasis: "auto",
+      maxWidth: undefined,
+      minHeight: 0,
+      height: 350,
+      borderRadius: 22,
+      padding: 14,
+    },
+
     cardTop: {
-      flexDirection:
-        "row",
+      flexDirection: "row",
       justifyContent:
         "space-between",
-      alignItems:
-        "center",
-      marginBottom:
-        12,
+      alignItems: "center",
+      marginBottom: 12,
+      gap: 7,
+    },
+
+    cardTopCompact: {
+      marginBottom: 5,
     },
 
     badges: {
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      gap:
-        6,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      flexWrap: "wrap",
+      gap: 5,
+      flexShrink: 1,
     },
 
     cardBrand: {
-      fontSize:
-        11,
-      fontWeight:
-        "900",
-      color:
-        colors.ink40,
-      letterSpacing:
-        1.5,
+      fontSize: 11,
+      fontWeight: "900",
+      color: colors.ink40,
+      letterSpacing: 1.5,
+      flexShrink: 1,
     },
 
     promotionBadge: {
-      fontSize:
-        10,
-      fontWeight:
-        "900",
-      color:
-        "#B42318",
+      fontSize: 10,
+      fontWeight: "900",
+      color: "#B42318",
       backgroundColor:
         "#FEE4E2",
-      paddingHorizontal:
-        9,
-      paddingVertical:
-        4,
-      borderRadius:
-        999,
-      overflow:
-        "hidden",
+      paddingHorizontal: 9,
+      paddingVertical: 4,
+      borderRadius: 999,
+      overflow: "hidden",
     },
 
     condition: {
-      fontSize:
-        10,
-      fontWeight:
-        "900",
-      paddingHorizontal:
-        9,
-      paddingVertical:
-        4,
-      borderRadius:
-        999,
-      overflow:
-        "hidden",
+      fontSize: 10,
+      fontWeight: "900",
+      paddingHorizontal: 9,
+      paddingVertical: 4,
+      borderRadius: 999,
+      overflow: "hidden",
+    },
+
+    badgeCompact: {
+      fontSize: 8,
+      paddingHorizontal: 7,
+      paddingVertical: 3,
     },
 
     new: {
-      color:
-        colors.good,
-
+      color: colors.good,
       backgroundColor:
         "rgba(31,164,99,0.10)",
     },
 
     refurbished: {
-      color:
-        "#233300",
-
+      color: "#233300",
       backgroundColor:
         colors.limeLt,
     },
 
     used: {
-      color:
-        "#6941C6",
-
+      color: "#6941C6",
       backgroundColor:
         "#F4F3FF",
     },
 
     phoneStage: {
-      height:
-        220,
-
-      alignItems:
-        "center",
-
+      height: 220,
+      alignItems: "center",
       justifyContent:
         "center",
-
-      marginBottom:
-        16,
-
-      overflow:
-        "hidden",
+      marginBottom: 16,
+      overflow: "hidden",
     },
 
-    /*
-     * Important:
-     * width and height are explicit,
-     * so React Native Web has a real
-     * box in which to render the image.
-     */
-    productImage: {
-      width:
-        "100%",
+    phoneStageCompact: {
+      height: 154,
+      marginBottom: 7,
+    },
 
-      height:
-        210,
+    productImage: {
+      width: "100%",
+      height: 210,
+    },
+
+    productImageCompact: {
+      height: 148,
     },
 
     imagePlaceholder: {
-      width:
-        150,
-
-      height:
-        180,
-
-      borderRadius:
-        22,
-
+      width: 150,
+      height: 180,
+      borderRadius: 22,
       backgroundColor:
         colors.bg,
-
-      borderWidth:
-        1,
-
+      borderWidth: 1,
       borderColor:
         colors.ink12,
-
-      alignItems:
-        "center",
-
+      alignItems: "center",
       justifyContent:
         "center",
+      padding: 15,
+    },
 
-      padding:
-        15,
+    imagePlaceholderCompact: {
+      width: 110,
+      height: 135,
+      borderRadius: 18,
     },
 
     imagePlaceholderBrand: {
-      fontSize:
-        42,
+      fontSize: 42,
+      fontWeight: "900",
+      color: colors.blue,
+    },
 
-      fontWeight:
-        "900",
-
-      color:
-        colors.blue,
+    imagePlaceholderBrandCompact: {
+      fontSize: 32,
     },
 
     imagePlaceholderText: {
-      color:
-        colors.ink40,
-
-      fontSize:
-        10,
-
-      fontWeight:
-        "700",
-
-      textAlign:
-        "center",
-
-      marginTop:
-        8,
+      color: colors.ink40,
+      fontSize: 10,
+      fontWeight: "700",
+      textAlign: "center",
+      marginTop: 8,
     },
 
     cardName: {
-      fontSize:
-        19,
+      fontSize: 19,
+      fontWeight: "900",
+      color: colors.ink,
+      marginBottom: 6,
+    },
 
-      fontWeight:
-        "900",
-
-      color:
-        colors.ink,
-
-      marginBottom:
-        6,
+    cardNameCompact: {
+      fontSize: 18,
+      lineHeight: 21,
+      letterSpacing: -0.4,
+      marginBottom: 3,
     },
 
     cardSpec: {
-      fontSize:
-        13,
+      fontSize: 13,
+      color: colors.ink40,
+      minHeight: 36,
+    },
 
-      color:
-        colors.ink40,
-
-      minHeight:
-        36,
+    cardSpecCompact: {
+      fontSize: 11,
+      minHeight: 16,
+      lineHeight: 15,
     },
 
     colorRow: {
-      flexDirection:
-        "row",
-
-      gap:
-        6,
-
-      marginVertical:
-        14,
+      flexDirection: "row",
+      gap: 6,
+      marginVertical: 14,
     },
 
     colorDot: {
-      width:
-        16,
-
-      height:
-        16,
-
-      borderRadius:
-        8,
-
-      borderWidth:
-        1,
-
+      width: 16,
+      height: 16,
+      borderRadius: 8,
+      borderWidth: 1,
       borderColor:
         colors.ink12,
     },
 
     singleColor: {
-      color:
-        colors.ink40,
-
-      fontSize:
-        11,
-
-      fontWeight:
-        "700",
-
-      marginVertical:
-        14,
+      color: colors.ink40,
+      fontSize: 11,
+      fontWeight: "700",
+      marginVertical: 14,
     },
 
     colorSpacer: {
-      height:
-        44,
+      height: 44,
     },
 
     statusRow: {
-      minHeight:
-        20,
-
-      marginBottom:
-        8,
+      minHeight: 20,
+      marginBottom: 8,
     },
 
-    stockText: {
-      color:
+    availabilityRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+
+    compactStatusRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      marginTop: 7,
+    },
+
+    availabilityDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 999,
+    },
+
+    availabilityDotAvailable: {
+      backgroundColor:
         colors.good,
-
-      fontSize:
-        11,
-
-      fontWeight:
-        "800",
     },
 
-    lowStockText: {
-      color:
-        "#B54708",
-    },
-
-    outOfStockText: {
-      color:
+    availabilityDotUnavailable: {
+      backgroundColor:
         "#B42318",
+    },
 
-      fontSize:
-        11,
-
-      fontWeight:
-        "800",
+    availableText: {
+      color: colors.good,
+      fontSize: 11,
+      fontWeight: "800",
     },
 
     unavailableText: {
-      color:
-        colors.ink40,
+      color: "#B42318",
+      fontSize: 11,
+      fontWeight: "800",
+    },
 
-      fontSize:
-        11,
+    availableTextCompact: {
+      color: colors.good,
+      fontSize: 10,
+      fontWeight: "800",
+    },
 
-      fontWeight:
-        "800",
+    unavailableTextCompact: {
+      color: "#B42318",
+      fontSize: 10,
+      fontWeight: "800",
     },
 
     purchaseMethods: {
-      flexDirection:
-        "row",
-
-      flexWrap:
-        "wrap",
-
-      gap:
-        6,
-
-      marginBottom:
-        12,
-
-      minHeight:
-        24,
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 6,
+      marginBottom: 12,
+      minHeight: 24,
     },
 
     methodBadge: {
       backgroundColor:
         colors.bg,
-
-      borderWidth:
-        1,
-
+      borderWidth: 1,
       borderColor:
         colors.ink12,
-
-      borderRadius:
-        999,
-
-      paddingHorizontal:
-        8,
-
-      paddingVertical:
-        4,
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
     },
 
     methodBadgeText: {
-      color:
-        colors.ink70,
-
-      fontSize:
-        9,
-
-      fontWeight:
-        "800",
+      color: colors.ink70,
+      fontSize: 9,
+      fontWeight: "800",
     },
 
     cardFooter: {
-      flexDirection:
-        "row",
-
+      flexDirection: "row",
       justifyContent:
         "space-between",
-
-      alignItems:
-        "flex-end",
-
-      marginTop:
-        "auto",
-
-      borderTopWidth:
-        1,
-
+      alignItems: "flex-end",
+      marginTop: "auto",
+      borderTopWidth: 1,
       borderTopColor:
         colors.ink06,
+      paddingTop: 14,
+      gap: 12,
+    },
 
-      paddingTop:
-        14,
-
-      gap:
-        12,
+    cardFooterCompact: {
+      paddingTop: 9,
+      gap: 8,
     },
 
     priceBlock: {
-      flex:
-        1,
+      flex: 1,
+      minWidth: 0,
     },
 
     buyLabel: {
-      color:
-        colors.ink40,
-
-      fontSize:
-        11,
-
-      fontWeight:
-        "900",
-
+      color: colors.ink40,
+      fontSize: 11,
+      fontWeight: "900",
       textTransform:
         "uppercase",
+      letterSpacing: 0.6,
+    },
 
-      letterSpacing:
-        0.6,
+    buyLabelCompact: {
+      fontSize: 9,
     },
 
     oldPrice: {
-      color:
-        colors.ink40,
-
-      fontSize:
-        13,
-
-      fontWeight:
-        "700",
-
+      color: colors.ink40,
+      fontSize: 13,
+      fontWeight: "700",
       textDecorationLine:
         "line-through",
+      marginTop: 4,
+    },
 
-      marginTop:
-        4,
+    oldPriceCompact: {
+      fontSize: 10,
+      marginTop: 1,
     },
 
     buyMainPrice: {
-      color:
-        colors.blue,
+      color: colors.blue,
+      fontSize: 24,
+      fontWeight: "900",
+      letterSpacing: -0.8,
+      marginTop: 2,
+    },
 
-      fontSize:
-        24,
-
-      fontWeight:
-        "900",
-
-      letterSpacing:
-        -0.8,
-
-      marginTop:
-        2,
+    buyMainPriceCompact: {
+      fontSize: 21,
+      lineHeight: 24,
+      letterSpacing: -0.6,
     },
 
     optionPriceText: {
-      color:
-        colors.ink40,
-
-      fontSize:
-        10,
-
-      fontWeight:
-        "800",
-
-      marginTop:
-        3,
-
-      lineHeight:
-        14,
+      color: colors.ink40,
+      fontSize: 10,
+      fontWeight: "800",
+      marginTop: 3,
+      lineHeight: 14,
     },
 
     viewButton: {
       backgroundColor:
         colors.ink,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderRadius: 14,
+      alignItems: "center",
+      justifyContent: "center",
+    },
 
-      color:
-        colors.white,
+    viewButtonCompact: {
+      minWidth: 58,
+      minHeight: 40,
+      paddingHorizontal: 11,
+      paddingVertical: 9,
+      borderRadius: 999,
+    },
 
-      paddingHorizontal:
-        14,
+    viewButtonText: {
+      color: colors.white,
+      fontWeight: "900",
+      fontSize: 13,
+    },
 
-      paddingVertical:
-        10,
-
-      borderRadius:
-        14,
-
-      overflow:
-        "hidden",
-
-      fontWeight:
-        "900",
+    viewButtonTextCompact: {
+      fontSize: 11,
     },
 
     viewButtonDisabled: {
-      opacity:
-        0.55,
+      opacity: 0.55,
     },
 
     empty: {
       backgroundColor:
         colors.white,
-
-      borderRadius:
-        24,
-
-      borderWidth:
-        1,
-
+      borderRadius: 24,
+      borderWidth: 1,
       borderColor:
         colors.ink12,
-
-      padding:
-        28,
-
-      alignItems:
-        "center",
-
+      padding: 28,
+      alignItems: "center",
       justifyContent:
         "center",
+      minHeight: 180,
+    },
 
-      minHeight:
-        180,
+    emptyMobile: {
+      marginHorizontal: 12,
+      minHeight: 150,
+      borderRadius: 20,
+      padding: 22,
     },
 
     loadingTitle: {
-      color:
-        colors.ink70,
-
-      fontSize:
-        14,
-
-      fontWeight:
-        "800",
-
-      marginTop:
-        12,
+      color: colors.ink70,
+      fontSize: 14,
+      fontWeight: "800",
+      marginTop: 12,
     },
 
     emptyTitle: {
-      color:
-        colors.ink,
-
-      fontSize:
-        22,
-
-      fontWeight:
-        "900",
+      color: colors.ink,
+      fontSize: 22,
+      fontWeight: "900",
+      textAlign: "center",
     },
 
     emptyText: {
-      color:
-        colors.ink70,
-
-      marginTop:
-        8,
+      color: colors.ink70,
+      marginTop: 8,
+      textAlign: "center",
     },
   });

@@ -4,6 +4,10 @@ import { supabase } from "../lib/supabase";
    ORDER TYPES
 ========================================================= */
 
+export type OrderLanguage =
+  | "pt"
+  | "en";
+
 export type OrderCondition =
   | "new"
   | "refurbished";
@@ -25,31 +29,62 @@ export type OrderStatus =
   | "delivered"
   | "cancelled";
 
+export type OrderDisplayCurrency =
+  | "CVE"
+  | "EUR";
+
 /* =========================================================
    CREATE ORDER INPUT
-========================================================= */
 
-/*
- * IMPORTANT:
- *
- * Prices are intentionally NOT included here.
- *
- * The browser must never decide:
- *
- * - base price
- * - promotional price
- * - refurbished price
- * - variant adjustment
- * - unit price
- * - total amount
- *
- * The create-order Edge Function calculates all
- * monetary values directly from Supabase.
- */
+   Prices are intentionally NOT included.
+
+   The frontend sends identifiers, customer information and
+   the customer's preferred DISPLAY currency.
+
+   The browser never sends an authoritative product price,
+   exchange rate, unit price or order total.
+========================================================= */
 
 export type CreateOrderInput = {
   customerName: string;
+
   customerEmail: string;
+
+  customerWhatsapp?:
+    | string
+    | null;
+
+  customerCountry?:
+    | string
+    | null;
+
+  customerStateRegion?:
+    | string
+    | null;
+
+  customerCity?:
+    | string
+    | null;
+
+  customerStreet?:
+    | string
+    | null;
+
+  customerHouseNumber?:
+    | string
+    | null;
+
+  customerAddressLine2?:
+    | string
+    | null;
+
+  customerPostalCode?:
+    | string
+    | null;
+
+  customerNotes?:
+    | string
+    | null;
 
   productId: string;
 
@@ -57,9 +92,19 @@ export type CreateOrderInput = {
     | string
     | null;
 
-  condition: OrderCondition;
+  condition:
+    OrderCondition;
 
   quantity?: number;
+
+  paymentMethod?:
+    OrderPaymentMethod;
+
+  language?:
+    OrderLanguage;
+
+  displayCurrency?:
+    OrderDisplayCurrency;
 };
 
 /* =========================================================
@@ -70,10 +115,59 @@ export type CreatedOrder = {
   id: string;
 
   order_number: string;
+
   payment_reference: string;
 
   customer_name: string;
+
   customer_email: string;
+
+  customer_whatsapp?:
+    | string
+    | null;
+
+  customer_country?:
+    | string
+    | null;
+
+  customer_state_region?:
+    | string
+    | null;
+
+  customer_city?:
+    | string
+    | null;
+
+  customer_street?:
+    | string
+    | null;
+
+  customer_house_number?:
+    | string
+    | null;
+
+  customer_address_line_2?:
+    | string
+    | null;
+
+  customer_postal_code?:
+    | string
+    | null;
+
+  customer_notes?:
+    | string
+    | null;
+
+  language?:
+    OrderLanguage;
+
+  product_id?:
+    | string
+    | null;
+
+  variant_id?:
+    | string
+    | null;
 
   product_name: string;
 
@@ -86,12 +180,28 @@ export type CreatedOrder = {
     | null;
 
   condition:
-    | string
-    | null;
+    OrderCondition;
 
   quantity: number;
 
+  unit_price: number;
+
   total_amount: number;
+
+  currency?:
+    string;
+
+  display_currency?:
+    OrderDisplayCurrency;
+
+  display_unit_price?:
+    number;
+
+  display_total_amount?:
+    number;
+
+  exchange_rate?:
+    number;
 
   payment_method:
     OrderPaymentMethod;
@@ -106,8 +216,11 @@ export type CreatedOrder = {
     | string
     | null;
 
-  created_at?: string;
-  updated_at?: string;
+  created_at?:
+    string;
+
+  updated_at?:
+    string;
 };
 
 /* =========================================================
@@ -115,17 +228,68 @@ export type CreatedOrder = {
 ========================================================= */
 
 export type OrderPricing = {
+  /*
+   * Actual settlement currency for the bank transfer.
+   * For the current POKAPOK Revolut flow this is EUR.
+   */
   currency: string;
-
-  base_price: number;
-
-  variant_adjustment: number;
 
   unit_price: number;
 
   quantity: number;
 
   total_amount: number;
+
+  /*
+   * Customer-facing display values.
+   * CVE is the storefront default; EUR is optional.
+   */
+  display_currency:
+    OrderDisplayCurrency;
+
+  display_unit_price:
+    number;
+
+  display_total_amount:
+    number;
+
+  /*
+   * EUR -> display-currency rate used by the server.
+   * 110.265 when display_currency === "CVE"; 1 for EUR.
+   */
+  exchange_rate:
+    number;
+};
+
+/* =========================================================
+   BANK TRANSFER
+========================================================= */
+
+export type BankTransferDetails = {
+  account_name: string;
+
+  iban: string;
+
+  bic: string;
+
+  bank_name: string;
+
+  country: string;
+
+  currency: string;
+};
+
+export type OrderPaymentDetails = {
+  method:
+    "bank_transfer";
+
+  status:
+    "awaiting_payment";
+
+  reference: string;
+
+  bank:
+    BankTransferDetails;
 };
 
 /* =========================================================
@@ -137,17 +301,22 @@ export type CreateOrderResult = {
 
   email_sent: boolean;
 
-  order: CreatedOrder;
+  warning?:
+    | string
+    | null;
+
+  order:
+    CreatedOrder;
 
   order_number: string;
 
   payment_reference: string;
 
-  pricing: OrderPricing;
+  pricing:
+    OrderPricing;
 
-  warning?:
-    | string
-    | null;
+  payment:
+    OrderPaymentDetails;
 };
 
 /* =========================================================
@@ -161,7 +330,7 @@ type CreateOrderErrorResponse = {
 };
 
 /* =========================================================
-   EMAIL VALIDATION
+   HELPERS
 ========================================================= */
 
 function isValidEmail(
@@ -172,134 +341,26 @@ function isValidEmail(
   );
 }
 
-/* =========================================================
-   INPUT NORMALIZATION
-========================================================= */
-
-function normalizeCreateOrderInput(
-  input: CreateOrderInput
+function cleanString(
+  value:
+    | string
+    | null
+    | undefined
 ) {
-  const customerName =
-    String(
-      input.customerName ??
-        ""
-    ).trim();
-
-  const customerEmail =
-    String(
-      input.customerEmail ??
-        ""
-    )
-      .trim()
-      .toLowerCase();
-
-  const productId =
-    String(
-      input.productId ??
-        ""
-    ).trim();
-
-  const variantId =
-    input.variantId
-      ? String(
-          input.variantId
-        ).trim()
-      : null;
-
-  const condition =
-    input.condition;
-
-  const quantity =
-    input.quantity ??
-    1;
-
-  return {
-    customerName,
-    customerEmail,
-    productId,
-    variantId,
-    condition,
-    quantity,
-  };
+  return (
+    value?.trim() ??
+    ""
+  );
 }
-
-/* =========================================================
-   CLIENT-SIDE INPUT VALIDATION
-========================================================= */
-
-/*
- * This validation is for user experience only.
- *
- * The Edge Function performs the real security
- * validation because browser code can always
- * be modified by the customer.
- */
-
-function validateCreateOrderInput(
-  input: ReturnType<
-    typeof normalizeCreateOrderInput
-  >
-) {
-  if (!input.customerName) {
-    throw new Error(
-      "Please enter your name."
-    );
-  }
-
-  if (!input.customerEmail) {
-    throw new Error(
-      "Please enter your email address."
-    );
-  }
-
-  if (
-    !isValidEmail(
-      input.customerEmail
-    )
-  ) {
-    throw new Error(
-      "Please enter a valid email address."
-    );
-  }
-
-  if (!input.productId) {
-    throw new Error(
-      "No product was selected."
-    );
-  }
-
-  if (
-    input.condition !==
-      "new" &&
-    input.condition !==
-      "refurbished"
-  ) {
-    throw new Error(
-      "Invalid product condition."
-    );
-  }
-
-  if (
-    !Number.isInteger(
-      input.quantity
-    ) ||
-    input.quantity < 1
-  ) {
-    throw new Error(
-      "Quantity must be a positive whole number."
-    );
-  }
-}
-
-/* =========================================================
-   NORMALIZE SERVER NUMBER
-========================================================= */
 
 function toNumber(
-  value: unknown
+  value:
+    unknown
 ): number {
   const number =
-    Number(value);
+    Number(
+      value
+    );
 
   if (
     !Number.isFinite(
@@ -310,6 +371,230 @@ function toNumber(
   }
 
   return number;
+}
+
+function normalizeDisplayCurrency(
+  value:
+    | string
+    | null
+    | undefined
+): OrderDisplayCurrency {
+  return String(
+    value ?? "CVE"
+  )
+    .trim()
+    .toUpperCase() === "EUR"
+    ? "EUR"
+    : "CVE";
+}
+
+/* =========================================================
+   INPUT NORMALIZATION
+========================================================= */
+
+function normalizeCreateOrderInput(
+  input:
+    CreateOrderInput
+) {
+  const customerName =
+    cleanString(
+      input.customerName
+    );
+
+  const customerEmail =
+    cleanString(
+      input.customerEmail
+    ).toLowerCase();
+
+  const customerWhatsapp =
+    cleanString(
+      input.customerWhatsapp
+    );
+
+  const customerCountry =
+    cleanString(input.customerCountry);
+
+  const customerStateRegion =
+    cleanString(input.customerStateRegion);
+
+  const customerCity =
+    cleanString(input.customerCity);
+
+  const customerStreet =
+    cleanString(input.customerStreet);
+
+  const customerHouseNumber =
+    cleanString(input.customerHouseNumber);
+
+  const customerAddressLine2 =
+    cleanString(input.customerAddressLine2);
+
+  const customerPostalCode =
+    cleanString(input.customerPostalCode);
+
+  const customerNotes =
+    cleanString(
+      input.customerNotes
+    );
+
+  const productId =
+    cleanString(
+      input.productId
+    );
+
+  const variantId =
+    cleanString(
+      input.variantId
+    ) || null;
+
+  const condition =
+    input.condition;
+
+  const quantity =
+    input.quantity ??
+    1;
+
+  const paymentMethod =
+    input.paymentMethod ??
+    "bank_transfer";
+
+  const language:
+    OrderLanguage =
+    input.language === "en"
+      ? "en"
+      : "pt";
+
+  const displayCurrency =
+    normalizeDisplayCurrency(
+      input.displayCurrency
+    );
+
+  return {
+    customerName,
+    customerEmail,
+
+    customerWhatsapp,
+    customerCountry,
+    customerStateRegion,
+    customerCity,
+    customerStreet,
+    customerHouseNumber,
+    customerAddressLine2,
+    customerPostalCode,
+    customerNotes,
+
+    productId,
+    variantId,
+
+    condition,
+    quantity,
+
+    paymentMethod,
+    language,
+    displayCurrency,
+  };
+}
+
+/* =========================================================
+   CLIENT-SIDE VALIDATION
+
+   This exists for user experience.
+   The Edge Function performs the actual security validation.
+========================================================= */
+
+function validateCreateOrderInput(
+  input:
+    ReturnType<
+      typeof normalizeCreateOrderInput
+    >
+) {
+  if (
+    !input.customerName
+  ) {
+    throw new Error(
+      "CUSTOMER_NAME_REQUIRED"
+    );
+  }
+
+  if (
+    !input.customerEmail
+  ) {
+    throw new Error(
+      "CUSTOMER_EMAIL_REQUIRED"
+    );
+  }
+
+  if (
+    !isValidEmail(
+      input.customerEmail
+    )
+  ) {
+    throw new Error(
+      "CUSTOMER_EMAIL_INVALID"
+    );
+  }
+
+  if (
+    !input.customerWhatsapp ||
+    !input.customerCountry ||
+    !input.customerStateRegion ||
+    !input.customerCity ||
+    !input.customerStreet
+  ) {
+    throw new Error(
+      "DELIVERY_ADDRESS_REQUIRED"
+    );
+  }
+
+  if (
+    !input.productId
+  ) {
+    throw new Error(
+      "PRODUCT_REQUIRED"
+    );
+  }
+
+  if (
+    input.condition !==
+      "new" &&
+    input.condition !==
+      "refurbished"
+  ) {
+    throw new Error(
+      "INVALID_CONDITION"
+    );
+  }
+
+  if (
+    !Number.isInteger(
+      input.quantity
+    ) ||
+    input.quantity < 1
+  ) {
+    throw new Error(
+      "INVALID_QUANTITY"
+    );
+  }
+
+  if (
+    input.paymentMethod !==
+    "bank_transfer"
+  ) {
+    throw new Error(
+      "PAYMENT_METHOD_NOT_AVAILABLE"
+    );
+  }
+
+  if (
+    input.displayCurrency !==
+      "CVE" &&
+    input.displayCurrency !==
+      "EUR"
+  ) {
+    throw new Error(
+      "INVALID_DISPLAY_CURRENCY"
+    );
+  }
 }
 
 /* =========================================================
@@ -327,9 +612,34 @@ function normalizeCreatedOrder(
         order.quantity
       ),
 
+    unit_price:
+      toNumber(
+        order.unit_price
+      ),
+
     total_amount:
       toNumber(
         order.total_amount
+      ),
+
+    display_currency:
+      normalizeDisplayCurrency(
+        order.display_currency
+      ),
+
+    display_unit_price:
+      toNumber(
+        order.display_unit_price
+      ),
+
+    display_total_amount:
+      toNumber(
+        order.display_total_amount
+      ),
+
+    exchange_rate:
+      toNumber(
+        order.exchange_rate
       ),
   };
 }
@@ -345,18 +655,10 @@ function normalizeOrderPricing(
     currency:
       String(
         pricing?.currency ??
-          "EUR"
-      ),
-
-    base_price:
-      toNumber(
-        pricing?.base_price
-      ),
-
-    variant_adjustment:
-      toNumber(
-        pricing?.variant_adjustment
-      ),
+        "EUR"
+      )
+        .trim()
+        .toUpperCase(),
 
     unit_price:
       toNumber(
@@ -372,6 +674,74 @@ function normalizeOrderPricing(
       toNumber(
         pricing?.total_amount
       ),
+
+    display_currency:
+      normalizeDisplayCurrency(
+        pricing?.display_currency
+      ),
+
+    display_unit_price:
+      toNumber(
+        pricing?.display_unit_price
+      ),
+
+    display_total_amount:
+      toNumber(
+        pricing?.display_total_amount
+      ),
+
+    exchange_rate:
+      toNumber(
+        pricing?.exchange_rate
+      ),
+  };
+}
+
+/* =========================================================
+   NORMALIZE BANK
+========================================================= */
+
+function normalizeBankDetails(
+  bank: any
+): BankTransferDetails {
+  return {
+    account_name:
+      String(
+        bank?.account_name ??
+        ""
+      ),
+
+    iban:
+      String(
+        bank?.iban ??
+        ""
+      ),
+
+    bic:
+      String(
+        bank?.bic ??
+        ""
+      ),
+
+    bank_name:
+      String(
+        bank?.bank_name ??
+        ""
+      ),
+
+    country:
+      String(
+        bank?.country ??
+        ""
+      ),
+
+    currency:
+      String(
+        bank?.currency ??
+        "EUR"
+      )
+        .trim()
+        .toUpperCase(),
   };
 }
 
@@ -380,55 +750,58 @@ function normalizeOrderPricing(
 ========================================================= */
 
 export async function createOrder(
-  input: CreateOrderInput
+  input:
+    CreateOrderInput
 ): Promise<CreateOrderResult> {
-  /*
-   * ------------------------------------------------------
-   * NORMALIZE
-   * ------------------------------------------------------
-   */
-
   const normalized =
     normalizeCreateOrderInput(
       input
     );
-
-  /*
-   * ------------------------------------------------------
-   * VALIDATE
-   * ------------------------------------------------------
-   */
 
   validateCreateOrderInput(
     normalized
   );
 
   /*
-   * ------------------------------------------------------
-   * CREATE SECURE REQUEST
-   * ------------------------------------------------------
-   *
-   * Notice what is NOT sent:
-   *
-   * - product_name
-   * - storage
-   * - color
-   * - sale_price
-   * - promotional_price
-   * - refurbished_price
-   * - price_adjustment
-   * - unit_price
-   * - total_amount
-   *
-   * Supabase determines all of these.
+   * Prices and exchange-rate values are intentionally absent.
+   * The server calculates them from Supabase and the fixed
+   * EUR/CVE conversion rule.
    */
-
   const requestBody = {
     customer_name:
       normalized.customerName,
 
     customer_email:
       normalized.customerEmail,
+
+    customer_whatsapp:
+      normalized.customerWhatsapp ||
+      null,
+
+    customer_country:
+      normalized.customerCountry || null,
+
+    customer_state_region:
+      normalized.customerStateRegion || null,
+
+    customer_city:
+      normalized.customerCity || null,
+
+    customer_street:
+      normalized.customerStreet || null,
+
+    customer_house_number:
+      normalized.customerHouseNumber || null,
+
+    customer_address_line_2:
+      normalized.customerAddressLine2 || null,
+
+    customer_postal_code:
+      normalized.customerPostalCode || null,
+
+    customer_notes:
+      normalized.customerNotes ||
+      null,
 
     product_id:
       normalized.productId,
@@ -441,13 +814,16 @@ export async function createOrder(
 
     quantity:
       normalized.quantity,
-  };
 
-  /*
-   * ------------------------------------------------------
-   * CALL CREATE-ORDER EDGE FUNCTION
-   * ------------------------------------------------------
-   */
+    payment_method:
+      normalized.paymentMethod,
+
+    language:
+      normalized.language,
+
+    display_currency:
+      normalized.displayCurrency,
+  };
 
   const {
     data,
@@ -461,23 +837,11 @@ export async function createOrder(
       }
     );
 
-  /*
-   * ------------------------------------------------------
-   * NETWORK / FUNCTION ERROR
-   * ------------------------------------------------------
-   */
-
   if (error) {
     console.error(
       "Create order function error:",
       error
     );
-
-    /*
-     * Depending on the Supabase client version,
-     * the useful server error can sometimes be
-     * available through the function error context.
-     */
 
     let serverMessage:
       | string
@@ -486,8 +850,9 @@ export async function createOrder(
 
     try {
       const context =
-        (error as any)
-          ?.context;
+        (
+          error as any
+        )?.context;
 
       if (
         context &&
@@ -498,7 +863,8 @@ export async function createOrder(
           await context.json();
 
         if (
-          typeof errorBody?.error ===
+          typeof errorBody
+            ?.error ===
           "string"
         ) {
           serverMessage =
@@ -516,19 +882,13 @@ export async function createOrder(
 
     throw new Error(
       serverMessage ||
-        "We could not create your order. Please try again."
+      "ORDER_CREATE_FAILED"
     );
   }
 
-  /*
-   * ------------------------------------------------------
-   * INVALID RESPONSE
-   * ------------------------------------------------------
-   */
-
   if (!data) {
     throw new Error(
-      "The order service returned an empty response."
+      "ORDER_RESPONSE_EMPTY"
     );
   }
 
@@ -537,33 +897,21 @@ export async function createOrder(
       | CreateOrderResult
       | CreateOrderErrorResponse;
 
-  /*
-   * ------------------------------------------------------
-   * SERVER REJECTED ORDER
-   * ------------------------------------------------------
-   */
-
   if (
     response.success !==
     true
   ) {
     throw new Error(
       response.error ||
-        "We could not create your order."
+      "ORDER_CREATE_FAILED"
     );
   }
-
-  /*
-   * ------------------------------------------------------
-   * VERIFY ORDER DATA
-   * ------------------------------------------------------
-   */
 
   if (
     !response.order
   ) {
     throw new Error(
-      "The order was created but no order information was returned."
+      "ORDER_RESPONSE_INVALID"
     );
   }
 
@@ -571,7 +919,7 @@ export async function createOrder(
     !response.order_number
   ) {
     throw new Error(
-      "The order was created but no order number was returned."
+      "ORDER_NUMBER_MISSING"
     );
   }
 
@@ -579,7 +927,7 @@ export async function createOrder(
     !response.payment_reference
   ) {
     throw new Error(
-      "The order was created but no payment reference was returned."
+      "PAYMENT_REFERENCE_MISSING"
     );
   }
 
@@ -587,63 +935,86 @@ export async function createOrder(
     !response.pricing
   ) {
     throw new Error(
-      "The order was created but no pricing information was returned."
+      "ORDER_PRICING_MISSING"
     );
   }
 
-  /*
-   * ------------------------------------------------------
-   * NORMALIZE SERVER RESPONSE
-   * ------------------------------------------------------
-   */
+  if (
+    !response.payment
+  ) {
+    throw new Error(
+      "PAYMENT_DETAILS_MISSING"
+    );
+  }
+
+  if (
+    !response.payment.bank
+  ) {
+    throw new Error(
+      "BANK_DETAILS_MISSING"
+    );
+  }
 
   const result:
     CreateOrderResult = {
-      success:
-        true,
+    success:
+      true,
 
-      email_sent:
-        Boolean(
-          response.email_sent
-        ),
+    email_sent:
+      Boolean(
+        response.email_sent
+      ),
 
-      order:
-        normalizeCreatedOrder(
-          response.order
-        ),
+    warning:
+      response.warning
+        ? String(
+            response.warning
+          )
+        : null,
 
-      order_number:
+    order:
+      normalizeCreatedOrder(
+        response.order
+      ),
+
+    order_number:
+      String(
+        response.order_number
+      ),
+
+    payment_reference:
+      String(
+        response.payment_reference
+      ),
+
+    pricing:
+      normalizeOrderPricing(
+        response.pricing
+      ),
+
+    payment: {
+      method:
+        "bank_transfer",
+
+      status:
+        "awaiting_payment",
+
+      reference:
         String(
-          response.order_number
-        ),
-
-      payment_reference:
-        String(
+          response.payment.reference ??
           response.payment_reference
         ),
 
-      pricing:
-        normalizeOrderPricing(
-          response.pricing
+      bank:
+        normalizeBankDetails(
+          response.payment.bank
         ),
-
-      warning:
-        response.warning
-          ? String(
-              response.warning
-            )
-          : null,
-    };
-
-  /*
-   * ------------------------------------------------------
-   * FINAL SANITY CHECK
-   * ------------------------------------------------------
-   */
+    },
+  };
 
   if (
-    result.pricing.total_amount <=
-    0
+    result.pricing
+      .total_amount <= 0
   ) {
     console.error(
       "Invalid pricing returned by create-order:",
@@ -651,7 +1022,21 @@ export async function createOrder(
     );
 
     throw new Error(
-      "The server returned an invalid order total."
+      "INVALID_ORDER_TOTAL"
+    );
+  }
+
+  if (
+    !result.payment
+      .bank.iban
+  ) {
+    console.error(
+      "Missing IBAN returned by create-order:",
+      result
+    );
+
+    throw new Error(
+      "BANK_DETAILS_MISSING"
     );
   }
 
@@ -664,16 +1049,46 @@ export async function createOrder(
 
 export function formatOrderPrice(
   amount: number,
-  currency = "EUR"
+  currency = "EUR",
+  language:
+    OrderLanguage =
+    "pt"
 ): string {
+  const normalizedCurrency =
+    currency
+      .trim()
+      .toUpperCase();
+
+  const locale =
+    language === "pt"
+      ? "pt-PT"
+      : "en-IE";
+
+  if (
+    normalizedCurrency ===
+    "CVE"
+  ) {
+    return `${new Intl.NumberFormat(
+      locale,
+      {
+        maximumFractionDigits:
+          0,
+      }
+    ).format(
+      Math.round(
+        amount
+      )
+    )} CVE`;
+  }
+
   return new Intl.NumberFormat(
-    "en-IE",
+    locale,
     {
       style:
         "currency",
 
       currency:
-        currency.toUpperCase(),
+        normalizedCurrency,
     }
   ).format(
     amount
@@ -681,27 +1096,67 @@ export function formatOrderPrice(
 }
 
 /* =========================================================
-   GET ORDER DISPLAY TOTAL
+   DISPLAY TOTAL
 ========================================================= */
 
 export function getOrderDisplayTotal(
-  result: CreateOrderResult
+  result:
+    CreateOrderResult,
+  language:
+    OrderLanguage =
+    "pt"
 ): string {
   return formatOrderPrice(
-    result.pricing.total_amount,
-    result.pricing.currency
+    result.pricing
+      .total_amount,
+
+    result.pricing
+      .currency,
+
+    language
   );
 }
 
 /* =========================================================
-   GET ORDER DISPLAY UNIT PRICE
+   CUSTOMER DISPLAY TOTAL
+========================================================= */
+
+export function getOrderCustomerDisplayTotal(
+  result:
+    CreateOrderResult,
+  language:
+    OrderLanguage =
+    "pt"
+): string {
+  return formatOrderPrice(
+    result.pricing
+      .display_total_amount,
+
+    result.pricing
+      .display_currency,
+
+    language
+  );
+}
+
+/* =========================================================
+   DISPLAY UNIT PRICE
 ========================================================= */
 
 export function getOrderDisplayUnitPrice(
-  result: CreateOrderResult
+  result:
+    CreateOrderResult,
+  language:
+    OrderLanguage =
+    "pt"
 ): string {
   return formatOrderPrice(
-    result.pricing.unit_price,
-    result.pricing.currency
+    result.pricing
+      .unit_price,
+
+    result.pricing
+      .currency,
+
+    language
   );
 }

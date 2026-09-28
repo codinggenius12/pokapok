@@ -124,8 +124,18 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       return sum;
     }, 0);
 
+    /*
+     * monthlyPrice is the FINAL recurring monthly amount.
+     *
+     * Examples:
+     * - lease + insurance
+     * - financing + insurance
+     * - outright purchase + monthly insurance
+     *
+     * Therefore we intentionally do NOT exclude "buy" items.
+     */
     const totalMonthly = items.reduce((sum, item) => {
-      if (item.paymentMode !== "buy") {
+      if (item.monthlyPrice > 0) {
         return sum + item.monthlyPrice * item.quantity;
       }
 

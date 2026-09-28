@@ -33,9 +33,13 @@ export type PublicProduct = {
    * product_variants is authoritative for:
    * - storage
    * - colour
-   * - stock
    * - images
+   * - availability
    * - customer pricing
+   *
+   * Numeric stock remains here only for database /
+   * backwards compatibility and is NOT used to determine
+   * whether a product can be purchased.
    */
   storage: string | null;
   color: string | null;
@@ -43,34 +47,29 @@ export type PublicProduct = {
   battery_health: number | null;
 
   /*
-   * Primary legacy product price.
+   * Legacy product-level pricing.
    *
-   * New product:
-   *   new price.
-   *
-   * Dedicated refurbished product:
-   *   refurbished price.
-   *
-   * Used product:
-   *   used price.
+   * Variant-level pricing is authoritative whenever
+   * a variant has a direct configured price.
    */
   sale_price: number;
   promotional_price: number | null;
 
-  /*
-   * Secondary refurbished fallback.
-   *
-   * Only applies to:
-   *
-   * condition === "new"
-   * refurbished_enabled === true
-   */
   refurbished_price: number | null;
   refurbished_promotional_price: number | null;
 
+  /*
+   * LEGACY ONLY.
+   *
+   * Do not use this field for storefront availability.
+   */
   stock: number;
 
+  /*
+   * Availability toggle is authoritative.
+   */
   available: boolean;
+
   published: boolean;
   featured: boolean;
 
@@ -115,40 +114,56 @@ export type PublicProductVariant = {
   /*
    * Legacy migration compatibility.
    *
-   * New migrated products should normally use
-   * direct variant prices instead.
+   * Direct variant prices are authoritative.
    */
   price_adjustment: number;
 
   /*
    * Primary variant customer pricing.
    *
-   * product.condition === "new":
-   *   new pricing.
-   *
-   * product.condition === "refurbished":
-   *   refurbished pricing.
-   *
-   * product.condition === "used":
-   *   used pricing.
-   *
-   * Purchase prices are deliberately not exposed.
+   * Purchase prices are deliberately NOT exposed.
    */
   sale_price: number | null;
   promotional_price: number | null;
 
   /*
-   * Secondary refurbished pricing.
+   * Legacy generic refurbished pricing.
    *
-   * Used only when:
-   *
-   * product.condition === "new"
-   * product.refurbished_enabled === true
+   * Kept temporarily for compatibility with older storefront code.
+   * Grade-specific pricing below is authoritative for the
+   * refurbished cosmetic-condition selector.
    */
   refurbished_sale_price: number | null;
   refurbished_promotional_price: number | null;
 
+  /*
+   * Refurbished cosmetic-grade customer pricing.
+   *
+   * These values come directly from Supabase product_variants.
+   * Purchase prices are deliberately NOT exposed publicly.
+   */
+  refurbished_correct_sale_price: number | null;
+  refurbished_correct_promotional_price: number | null;
+
+  refurbished_good_sale_price: number | null;
+  refurbished_good_promotional_price: number | null;
+
+  refurbished_excellent_sale_price: number | null;
+  refurbished_excellent_promotional_price: number | null;
+
+  refurbished_premium_sale_price: number | null;
+  refurbished_premium_promotional_price: number | null;
+
+  /*
+   * LEGACY ONLY.
+   *
+   * Numeric stock is no longer used by the storefront.
+   */
   stock: number;
+
+  /*
+   * Availability toggle is authoritative.
+   */
   available: boolean;
 
   image_url: string | null;
@@ -183,7 +198,17 @@ export type PublicProductColor = {
 
   image_url: string | null;
 
+  /*
+   * true when at least one matching variant has
+   * available === true.
+   */
   available: boolean;
+
+  /*
+   * Deprecated compatibility property.
+   *
+   * Always 0 in the availability-only storefront model.
+   */
   stock: number;
 };
 
@@ -196,7 +221,15 @@ export type PublicProductStorage = {
    */
   price: number | null;
 
+  /*
+   * true when at least one matching variant has
+   * available === true.
+   */
   available: boolean;
+
+  /*
+   * Deprecated compatibility property.
+   */
   stock: number;
 };
 
@@ -209,6 +242,12 @@ export type PublicProductStorage = {
 export type PublicSellCondition =
   | "new"
   | "refurbished";
+
+export type PublicRefurbishedGrade =
+  | "correct"
+  | "good"
+  | "excellent"
+  | "premium";
 
 /* =========================================================
    NORMALIZATION HELPERS
@@ -362,6 +401,9 @@ function normalizeProduct(
         product.refurbished_promotional_price
       ),
 
+    /*
+     * Legacy only.
+     */
     stock:
       Math.max(
         0,
@@ -534,6 +576,49 @@ function normalizeVariant(
         variant.refurbished_promotional_price
       ),
 
+    refurbished_correct_sale_price:
+      toNullableNumber(
+        variant.refurbished_correct_sale_price
+      ),
+
+    refurbished_correct_promotional_price:
+      toNullableNumber(
+        variant.refurbished_correct_promotional_price
+      ),
+
+    refurbished_good_sale_price:
+      toNullableNumber(
+        variant.refurbished_good_sale_price
+      ),
+
+    refurbished_good_promotional_price:
+      toNullableNumber(
+        variant.refurbished_good_promotional_price
+      ),
+
+    refurbished_excellent_sale_price:
+      toNullableNumber(
+        variant.refurbished_excellent_sale_price
+      ),
+
+    refurbished_excellent_promotional_price:
+      toNullableNumber(
+        variant.refurbished_excellent_promotional_price
+      ),
+
+    refurbished_premium_sale_price:
+      toNullableNumber(
+        variant.refurbished_premium_sale_price
+      ),
+
+    refurbished_premium_promotional_price:
+      toNullableNumber(
+        variant.refurbished_premium_promotional_price
+      ),
+
+    /*
+     * Legacy only.
+     */
     stock:
       Math.max(
         0,
@@ -641,8 +726,7 @@ const publicProductSelect = `
 /* =========================================================
    VARIANT SELECT
 
-   purchase_price and refurbished_purchase_price
-   are intentionally excluded.
+   Purchase prices are intentionally excluded.
 ========================================================= */
 
 const publicVariantSelect = `
@@ -662,6 +746,18 @@ const publicVariantSelect = `
 
   refurbished_sale_price,
   refurbished_promotional_price,
+
+  refurbished_correct_sale_price,
+  refurbished_correct_promotional_price,
+
+  refurbished_good_sale_price,
+  refurbished_good_promotional_price,
+
+  refurbished_excellent_sale_price,
+  refurbished_excellent_promotional_price,
+
+  refurbished_premium_sale_price,
+  refurbished_premium_promotional_price,
 
   stock,
   available,
@@ -1150,6 +1246,212 @@ function getValidPromotion(
 }
 
 /* =========================================================
+   REFURBISHED GRADE PRICING
+
+   SOURCE OF TRUTH:
+   Supabase product_variants only.
+
+   These helpers deliberately do NOT:
+   - read phones.ts
+   - calculate percentages
+   - fall back to product-level prices
+   - expose purchase prices
+========================================================= */
+
+function getRefurbishedGradeSalePriceField(
+  variant: PublicProductVariant,
+  grade: PublicRefurbishedGrade
+): number | null {
+  switch (grade) {
+    case "correct":
+      return variant.refurbished_correct_sale_price;
+
+    case "good":
+      return variant.refurbished_good_sale_price;
+
+    case "excellent":
+      return variant.refurbished_excellent_sale_price;
+
+    case "premium":
+      return variant.refurbished_premium_sale_price;
+  }
+}
+
+function getRefurbishedGradePromotionalPriceField(
+  variant: PublicProductVariant,
+  grade: PublicRefurbishedGrade
+): number | null {
+  switch (grade) {
+    case "correct":
+      return variant.refurbished_correct_promotional_price;
+
+    case "good":
+      return variant.refurbished_good_promotional_price;
+
+    case "excellent":
+      return variant.refurbished_excellent_promotional_price;
+
+    case "premium":
+      return variant.refurbished_premium_promotional_price;
+  }
+}
+
+export function getPublicVariantRefurbishedGradeNormalPrice(
+  variant: PublicProductVariant,
+  grade: PublicRefurbishedGrade
+): number | null {
+  const price =
+    getRefurbishedGradeSalePriceField(
+      variant,
+      grade
+    );
+
+  if (
+    price === null ||
+    !Number.isFinite(price) ||
+    price <= 0
+  ) {
+    return null;
+  }
+
+  return safeMoney(price);
+}
+
+export function getPublicVariantRefurbishedGradePromotionalPrice(
+  variant: PublicProductVariant,
+  grade: PublicRefurbishedGrade
+): number | null {
+  const normalPrice =
+    getPublicVariantRefurbishedGradeNormalPrice(
+      variant,
+      grade
+    );
+
+  if (normalPrice === null) {
+    return null;
+  }
+
+  return getValidPromotion(
+    normalPrice,
+    getRefurbishedGradePromotionalPriceField(
+      variant,
+      grade
+    )
+  );
+}
+
+export function getPublicVariantRefurbishedGradePrice(
+  variant: PublicProductVariant,
+  grade: PublicRefurbishedGrade
+): number | null {
+  const normalPrice =
+    getPublicVariantRefurbishedGradeNormalPrice(
+      variant,
+      grade
+    );
+
+  if (normalPrice === null) {
+    return null;
+  }
+
+  return (
+    getPublicVariantRefurbishedGradePromotionalPrice(
+      variant,
+      grade
+    ) ??
+    normalPrice
+  );
+}
+
+export function variantHasRefurbishedGradePrice(
+  variant: PublicProductVariant,
+  grade: PublicRefurbishedGrade
+): boolean {
+  return (
+    getPublicVariantRefurbishedGradeNormalPrice(
+      variant,
+      grade
+    ) !== null
+  );
+}
+
+export function variantHasRefurbishedGradePromotion(
+  variant: PublicProductVariant,
+  grade: PublicRefurbishedGrade
+): boolean {
+  return (
+    getPublicVariantRefurbishedGradePromotionalPrice(
+      variant,
+      grade
+    ) !== null
+  );
+}
+
+export function getLowestPublicVariantRefurbishedGradePrice(
+  variant: PublicProductVariant
+): number | null {
+  const grades: PublicRefurbishedGrade[] = [
+    "correct",
+    "good",
+    "excellent",
+    "premium",
+  ];
+
+  const prices =
+    grades
+      .map((grade) =>
+        getPublicVariantRefurbishedGradePrice(
+          variant,
+          grade
+        )
+      )
+      .filter(
+        (
+          price
+        ): price is number =>
+          price !== null
+      );
+
+  if (prices.length === 0) {
+    return null;
+  }
+
+  return safeMoney(
+    Math.min(...prices)
+  );
+}
+
+export function getLowestProductRefurbishedGradePrice(
+  variants: PublicProductVariant[]
+): number | null {
+  const prices =
+    variants
+      .filter(
+        (variant) =>
+          variant.available
+      )
+      .map((variant) =>
+        getLowestPublicVariantRefurbishedGradePrice(
+          variant
+        )
+      )
+      .filter(
+        (
+          price
+        ): price is number =>
+          price !== null
+      );
+
+  if (prices.length === 0) {
+    return null;
+  }
+
+  return safeMoney(
+    Math.min(...prices)
+  );
+}
+
+/* =========================================================
    LEGACY PRODUCT ACTIVE PRICE
 ========================================================= */
 
@@ -1246,10 +1548,6 @@ export function productHasMultipleConditionOptions(
 export function productHasRefurbishedPrice(
   product: PublicProduct
 ): boolean {
-  /*
-   * This field is only meaningful when a NEW product
-   * additionally offers refurbished.
-   */
   if (
     product.condition !==
       "new" ||
@@ -1291,9 +1589,6 @@ export function getActiveRefurbishedPrice(
 ): number | null {
   /*
    * Dedicated refurbished / used product.
-   *
-   * Its primary sale_price already represents
-   * its customer price.
    */
   if (
     product.condition ===
@@ -1442,9 +1737,6 @@ export function getNormalProductPriceByCondition(
     );
   }
 
-  /*
-   * Dedicated refurbished / used product.
-   */
   if (
     product.condition ===
       "refurbished" ||
@@ -1465,9 +1757,6 @@ export function getNormalProductPriceByCondition(
     );
   }
 
-  /*
-   * NEW + optional refurbished.
-   */
   if (
     product.refurbished_price ===
       null ||
@@ -1501,10 +1790,6 @@ export function productHasPromotionByCondition(
     );
   }
 
-  /*
-   * Dedicated refurbished / used products use
-   * promotional_price.
-   */
   if (
     product.condition ===
       "refurbished" ||
@@ -1516,9 +1801,6 @@ export function productHasPromotionByCondition(
     );
   }
 
-  /*
-   * NEW + optional refurbished.
-   */
   return productHasRefurbishedPromotion(
     product
   );
@@ -1538,16 +1820,17 @@ export function productShouldBeVisible(
 
 /* =========================================================
    PRODUCT PURCHASABLE
+
+   IMPORTANT:
+   Numeric stock is intentionally ignored.
 ========================================================= */
 
 export function productIsPurchasable(
   product: PublicProduct
 ): boolean {
-  return (
+  return Boolean(
     product.published &&
-    product.available &&
-    product.stock >
-      0
+    product.available
   );
 }
 
@@ -1583,15 +1866,16 @@ export function productIsPurchasableByCondition(
 
 /* =========================================================
    VARIANT PURCHASABLE
+
+   IMPORTANT:
+   Numeric stock is intentionally ignored.
 ========================================================= */
 
 export function variantIsPurchasable(
   variant: PublicProductVariant
 ): boolean {
-  return (
-    variant.available &&
-    variant.stock >
-      0
+  return Boolean(
+    variant.available
   );
 }
 
@@ -1664,6 +1948,8 @@ export function variantHasConfiguredPrice(
 
 /* =========================================================
    VARIANT NORMAL PRICE BY CONDITION
+
+   Direct variant price is authoritative.
 ========================================================= */
 
 export function getVariantNormalPriceByCondition(
@@ -1714,7 +2000,7 @@ export function getVariantNormalPriceByCondition(
     }
 
     /*
-     * Legacy product + adjustment fallback.
+     * Legacy fallback only.
      */
     if (
       product.sale_price >
@@ -1732,7 +2018,7 @@ export function getVariantNormalPriceByCondition(
   }
 
   /*
-   * REFURBISHED / USED CUSTOMER CONDITION
+   * REFURBISHED
    */
   if (
     !productCanBeSoldRefurbished(
@@ -1746,9 +2032,6 @@ export function getVariantNormalPriceByCondition(
 
   /*
    * Dedicated refurbished / used product.
-   *
-   * Primary variant sale_price is already
-   * its customer selling price.
    */
   if (
     product.condition ===
@@ -1767,6 +2050,9 @@ export function getVariantNormalPriceByCondition(
       );
     }
 
+    /*
+     * Legacy fallback only.
+     */
     if (
       product.sale_price >
       0
@@ -1797,7 +2083,7 @@ export function getVariantNormalPriceByCondition(
   }
 
   /*
-   * Legacy product-level refurbished fallback.
+   * Legacy product-level fallback only.
    */
   if (
     product.refurbished_price !==
@@ -1839,6 +2125,9 @@ export function getPublicVariantPriceByCondition(
     condition ===
     "new"
   ) {
+    /*
+     * Variant-level promotion.
+     */
     const promotion =
       getValidPromotion(
         variant.sale_price,
@@ -1853,7 +2142,7 @@ export function getPublicVariantPriceByCondition(
     }
 
     /*
-     * Direct variant price exists.
+     * Direct variant sale price exists.
      */
     if (
       variant.sale_price !==
@@ -1877,8 +2166,6 @@ export function getPublicVariantPriceByCondition(
 
   /*
    * DEDICATED REFURBISHED / USED
-   *
-   * Uses primary sale/promotional columns.
    */
   if (
     product.condition ===
@@ -1908,6 +2195,9 @@ export function getPublicVariantPriceByCondition(
       return normalPrice;
     }
 
+    /*
+     * Legacy fallback.
+     */
     return safeMoney(
       getActiveProductPrice(
         product
@@ -1942,7 +2232,7 @@ export function getPublicVariantPriceByCondition(
   }
 
   /*
-   * Legacy product-level fallback.
+   * Legacy product-level refurbished fallback.
    */
   const legacyPrice =
     getActiveRefurbishedPrice(
@@ -1972,10 +2262,6 @@ export function getPublicVariantPrice(
   product: PublicProduct,
   variant: PublicProductVariant
 ): number {
-  /*
-   * Preserve backwards compatibility while also
-   * supporting dedicated refurbished / used products.
-   */
   return getPublicVariantPriceByCondition(
     product,
     variant,
@@ -2055,6 +2341,20 @@ export function variantHasPromotionByCondition(
 
 /* =========================================================
    VARIANT PURCHASABLE BY CONDITION
+
+   Availability hierarchy:
+
+   product.published
+          ↓
+   product.available
+          ↓
+   variant.available
+          ↓
+   condition enabled
+          ↓
+   valid customer price
+
+   Numeric stock is NEVER considered.
 ========================================================= */
 
 export function variantIsPurchasableByCondition(
@@ -2062,17 +2362,34 @@ export function variantIsPurchasableByCondition(
   variant: PublicProductVariant,
   condition: PublicSellCondition
 ): boolean {
+  /*
+   * Parent product must be public and available.
+   */
   if (
-    !variantIsPurchasable(
+    !productIsPurchasable(
+      product
+    )
+  ) {
+    return false;
+  }
+
+  /*
+   * Variant must belong to this product.
+   */
+  if (
+    !variantBelongsToProduct(
+      product,
       variant
     )
   ) {
     return false;
   }
 
+  /*
+   * Variant availability toggle is authoritative.
+   */
   if (
-    !variantBelongsToProduct(
-      product,
+    !variantIsPurchasable(
       variant
     )
   ) {
@@ -2106,7 +2423,7 @@ export function variantIsPurchasableByCondition(
   }
 
   /*
-   * REFURBISHED / USED
+   * REFURBISHED
    */
   if (
     !productCanBeSoldRefurbished(
@@ -2137,7 +2454,7 @@ export function variantIsPurchasableByCondition(
   }
 
   /*
-   * NEW + optional refurbished.
+   * NEW product with optional refurbished condition.
    */
   return (
     variantHasConfiguredPrice(
@@ -2173,10 +2490,10 @@ export function getOrderUnitPrice(
   }
 
   /*
-   * Compatibility fallback.
+   * Legacy compatibility fallback.
    *
-   * Once checkout always requires a variant_id,
-   * this can be removed.
+   * Checkout should ultimately require variant_id whenever
+   * the product has variants.
    */
   return getActiveProductPriceByCondition(
     product,
@@ -2225,6 +2542,8 @@ export function calculateProductOrderTotal(
    UNIQUE PRODUCT COLORS
 
    Supabase product_variants is authoritative.
+
+   Availability is controlled ONLY by variant.available.
 ========================================================= */
 
 export function getProductColors(
@@ -2254,14 +2573,6 @@ export function getProductColors(
     const key =
       colorName.toLowerCase();
 
-    const variantStock =
-      variant.available
-        ? Math.max(
-            0,
-            variant.stock
-          )
-        : 0;
-
     const existing =
       colorMap.get(
         key
@@ -2284,28 +2595,26 @@ export function getProductColors(
             variant.image_url,
 
           available:
-            variant.available &&
-            variant.stock >
-              0,
+            variant.available,
 
+          /*
+           * Legacy compatibility only.
+           */
           stock:
-            variantStock,
+            0,
         }
       );
 
       continue;
     }
 
-    existing.stock +=
-      variantStock;
-
+    /*
+     * A colour is available when at least one
+     * variant of that colour is available.
+     */
     existing.available =
       existing.available ||
-      (
-        variant.available &&
-        variant.stock >
-          0
-      );
+      variant.available;
 
     if (
       !existing.image_url &&
@@ -2332,6 +2641,8 @@ export function getProductColors(
 
 /* =========================================================
    UNIQUE PRODUCT STORAGE OPTIONS
+
+   Availability is controlled ONLY by variant.available.
 ========================================================= */
 
 export function getProductStorageOptions(
@@ -2363,14 +2674,6 @@ export function getProductStorageOptions(
     const key =
       label.toLowerCase();
 
-    const variantStock =
-      variant.available
-        ? Math.max(
-            0,
-            variant.stock
-          )
-        : 0;
-
     let variantPrice:
       number | null =
       null;
@@ -2378,35 +2681,24 @@ export function getProductStorageOptions(
     if (
       product
     ) {
-      try {
-        variantPrice =
-          getPublicVariantPriceByCondition(
-            product,
-            variant,
-            condition
-          );
-      } catch {
-        variantPrice =
-          null;
-      }
-    } else {
-      /*
-       * Without product context only primary
-       * sale_price can safely be inferred.
-       */
-      if (
-        variant.sale_price !==
-          null &&
-        variant.sale_price >
-          0
-      ) {
-        variantPrice =
-          getValidPromotion(
-            variant.sale_price,
-            variant.promotional_price
-          ) ??
-          variant.sale_price;
-      }
+      variantPrice =
+        tryGetPublicVariantPriceByCondition(
+          product,
+          variant,
+          condition
+        );
+    } else if (
+      variant.sale_price !==
+        null &&
+      variant.sale_price >
+        0
+    ) {
+      variantPrice =
+        getValidPromotion(
+          variant.sale_price,
+          variant.promotional_price
+        ) ??
+        variant.sale_price;
     }
 
     const existing =
@@ -2426,28 +2718,26 @@ export function getProductStorageOptions(
             variantPrice,
 
           available:
-            variant.available &&
-            variant.stock >
-              0,
+            variant.available,
 
+          /*
+           * Legacy compatibility only.
+           */
           stock:
-            variantStock,
+            0,
         }
       );
 
       continue;
     }
 
-    existing.stock +=
-      variantStock;
-
+    /*
+     * A storage option is available when at least one
+     * matching variant is available.
+     */
     existing.available =
       existing.available ||
-      (
-        variant.available &&
-        variant.stock >
-          0
-      );
+      variant.available;
 
     if (
       variantPrice !==
@@ -2661,64 +2951,38 @@ export function getColorImage(
 }
 
 /* =========================================================
-   TOTAL VARIANT STOCK
+   LEGACY TOTAL VARIANT STOCK
+
+   DEPRECATED.
+
+   Numeric inventory is no longer part of the storefront
+   availability model.
+
+   Kept temporarily so older imports do not break.
 ========================================================= */
 
 export function getVariantTotalStock(
-  variants: PublicProductVariant[]
+  _variants: PublicProductVariant[]
 ): number {
-  return variants.reduce(
-    (
-      total,
-      variant
-    ) =>
-      total +
-      (
-        variant.available
-          ? Math.max(
-              0,
-              variant.stock
-            )
-          : 0
-      ),
-    0
-  );
+  return 0;
 }
 
 /* =========================================================
-   AVAILABLE VARIANT STOCK FOR CONDITION
+   LEGACY VARIANT STOCK BY CONDITION
+
+   DEPRECATED.
+
+   Availability is controlled by:
+   - product.available
+   - variant.available
 ========================================================= */
 
 export function getVariantStockByCondition(
-  product: PublicProduct,
-  variants: PublicProductVariant[],
-  condition: PublicSellCondition
+  _product: PublicProduct,
+  _variants: PublicProductVariant[],
+  _condition: PublicSellCondition
 ): number {
-  return variants.reduce(
-    (
-      total,
-      variant
-    ) => {
-      if (
-        !variantIsPurchasableByCondition(
-          product,
-          variant,
-          condition
-        )
-      ) {
-        return total;
-      }
-
-      return (
-        total +
-        Math.max(
-          0,
-          variant.stock
-        )
-      );
-    },
-    0
-  );
+  return 0;
 }
 
 /* =========================================================
@@ -2757,6 +3021,8 @@ export function getHighestVariantPrice(
 
 /* =========================================================
    LOWEST VARIANT PRICE BY CONDITION
+
+   Only purchasable/available variants participate.
 ========================================================= */
 
 export function getLowestVariantPriceByCondition(
@@ -2766,26 +3032,25 @@ export function getLowestVariantPriceByCondition(
 ): number {
   const prices =
     variants
+      .filter(
+        (
+          variant
+        ) =>
+          variantIsPurchasableByCondition(
+            product,
+            variant,
+            condition
+          )
+      )
       .map(
         (
           variant
-        ) => {
-          try {
-            const price =
-              getPublicVariantPriceByCondition(
-                product,
-                variant,
-                condition
-              );
-
-            return price >
-              0
-              ? price
-              : null;
-          } catch {
-            return null;
-          }
-        }
+        ) =>
+          tryGetPublicVariantPriceByCondition(
+            product,
+            variant,
+            condition
+          )
       )
       .filter(
         (
@@ -2806,14 +3071,27 @@ export function getLowestVariantPriceByCondition(
     );
   }
 
-  return getActiveProductPriceByCondition(
-    product,
-    condition
-  );
+  /*
+   * Compatibility fallback for products that have no
+   * variants at all.
+   */
+  if (
+    variants.length ===
+    0
+  ) {
+    return getActiveProductPriceByCondition(
+      product,
+      condition
+    );
+  }
+
+  return 0;
 }
 
 /* =========================================================
    HIGHEST VARIANT PRICE BY CONDITION
+
+   Only purchasable/available variants participate.
 ========================================================= */
 
 export function getHighestVariantPriceByCondition(
@@ -2823,26 +3101,25 @@ export function getHighestVariantPriceByCondition(
 ): number {
   const prices =
     variants
+      .filter(
+        (
+          variant
+        ) =>
+          variantIsPurchasableByCondition(
+            product,
+            variant,
+            condition
+          )
+      )
       .map(
         (
           variant
-        ) => {
-          try {
-            const price =
-              getPublicVariantPriceByCondition(
-                product,
-                variant,
-                condition
-              );
-
-            return price >
-              0
-              ? price
-              : null;
-          } catch {
-            return null;
-          }
-        }
+        ) =>
+          tryGetPublicVariantPriceByCondition(
+            product,
+            variant,
+            condition
+          )
       )
       .filter(
         (
@@ -2863,10 +3140,17 @@ export function getHighestVariantPriceByCondition(
     );
   }
 
-  return getActiveProductPriceByCondition(
-    product,
-    condition
-  );
+  if (
+    variants.length ===
+    0
+  ) {
+    return getActiveProductPriceByCondition(
+      product,
+      condition
+    );
+  }
+
+  return 0;
 }
 
 /* =========================================================
@@ -3044,6 +3328,8 @@ export function productHasStorage(
 
 /* =========================================================
    AVAILABLE COLORS BY CONDITION
+
+   Numeric stock is ignored.
 ========================================================= */
 
 export function getAvailableColorsByCondition(
@@ -3259,9 +3545,6 @@ export function getProductSellConditions(
 
 /* =========================================================
    SAFE VARIANT PRICE
-
-   Useful for UI components where we do not want a
-   missing migrated price to crash the entire page.
 ========================================================= */
 
 export function tryGetPublicVariantPriceByCondition(

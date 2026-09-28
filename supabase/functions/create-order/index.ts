@@ -1,17 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
 /* =========================================================
-   CORS
-========================================================= */
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-/* =========================================================
    TYPES
 ========================================================= */
 
@@ -19,35 +8,30 @@ type SellCondition =
   | "new"
   | "refurbished";
 
+type Language =
+  | "pt"
+  | "en";
+
+type DisplayCurrency =
+  | "CVE"
+  | "EUR";
+
 type ProductRow = {
   id: string;
   name: string;
   slug: string;
   condition:
-    | "new"
-    | "refurbished"
+    | SellCondition
     | "used";
-
   refurbished_enabled: boolean;
-
-  sale_price: number | string;
+  sale_price:
+    | number
+    | string
+    | null;
   promotional_price:
     | number
     | string
     | null;
-
-  refurbished_price:
-    | number
-    | string
-    | null;
-
-  refurbished_promotional_price:
-    | number
-    | string
-    | null;
-
-  stock: number | string;
-
   available: boolean;
   published: boolean;
 };
@@ -55,18 +39,74 @@ type ProductRow = {
 type VariantRow = {
   id: string;
   product_id: string;
-
-  storage: string | null;
-  color: string | null;
-  sku: string | null;
-
-  price_adjustment:
+  storage:
+    | string
+    | null;
+  color:
+    | string
+    | null;
+  sku:
+    | string
+    | null;
+  available: boolean;
+  sale_price:
     | number
     | string
     | null;
+  promotional_price:
+    | number
+    | string
+    | null;
+  refurbished_sale_price:
+    | number
+    | string
+    | null;
+  refurbished_promotional_price:
+    | number
+    | string
+    | null;
+};
 
-  stock: number | string;
-  available: boolean;
+type BankDetails = {
+  account_name: string;
+  iban: string;
+  bic: string;
+  bank_name: string;
+  country: string;
+  currency: string;
+};
+
+/* =========================================================
+   CURRENCY
+
+   Product prices remain authoritative in EUR.
+
+   The Cape Verde escudo is pegged to the euro at:
+   1 EUR = 110.265 CVE.
+
+   CVE is a DISPLAY currency in the current checkout.
+   Bank transfers are settled in EUR.
+========================================================= */
+
+const EUR_TO_CVE =
+  110.265;
+
+const SETTLEMENT_CURRENCY =
+  "EUR";
+
+/* =========================================================
+   CORS
+========================================================= */
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin":
+    "*",
+
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+
+  "Access-Control-Allow-Methods":
+    "POST, OPTIONS",
 };
 
 /* =========================================================
@@ -74,15 +114,23 @@ type VariantRow = {
 ========================================================= */
 
 function jsonResponse(
-  body: unknown,
+  body:
+    Record<
+      string,
+      unknown
+    >,
   status = 200
 ) {
   return new Response(
-    JSON.stringify(body),
+    JSON.stringify(
+      body
+    ),
     {
       status,
+
       headers: {
         ...corsHeaders,
+
         "Content-Type":
           "application/json",
       },
@@ -91,26 +139,37 @@ function jsonResponse(
 }
 
 function badRequest(
-  error: string
+  message: string
 ) {
   return jsonResponse(
     {
       success: false,
-      error,
+      error: message,
     },
     400
   );
 }
 
 /* =========================================================
-   VALUE HELPERS
+   GENERAL HELPERS
 ========================================================= */
+
+function cleanString(
+  value: unknown
+) {
+  return String(
+    value ??
+    ""
+  ).trim();
+}
 
 function toNumber(
   value: unknown
-): number {
+) {
   const parsed =
-    Number(value ?? 0);
+    Number(
+      value
+    );
 
   return Number.isFinite(
     parsed
@@ -121,7 +180,7 @@ function toNumber(
 
 function toNullableNumber(
   value: unknown
-): number | null {
+) {
   if (
     value === null ||
     value === undefined ||
@@ -131,7 +190,9 @@ function toNullableNumber(
   }
 
   const parsed =
-    Number(value);
+    Number(
+      value
+    );
 
   return Number.isFinite(
     parsed
@@ -145,54 +206,156 @@ function roundMoney(
 ) {
   return (
     Math.round(
-      (value + Number.EPSILON) *
-        100
+      (
+        value +
+        Number.EPSILON
+      ) * 100
     ) / 100
   );
 }
 
+function isValidEmail(
+  email: string
+) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+    email
+  );
+}
+
+function normalizeDisplayCurrency(
+  value: unknown
+):
+  | DisplayCurrency
+  | null {
+  const normalized =
+    cleanString(
+      value
+    ).toUpperCase();
+
+  if (
+    !normalized
+  ) {
+    return "CVE";
+  }
+
+  if (
+    normalized ===
+      "CVE" ||
+    normalized ===
+      "EUR"
+  ) {
+    return normalized;
+  }
+
+  return null;
+}
+
+function convertEurForDisplay(
+  eurAmount: number,
+  displayCurrency:
+    DisplayCurrency
+) {
+  if (
+    displayCurrency ===
+    "CVE"
+  ) {
+    /*
+     * Match the storefront:
+     * display CVE as whole escudos.
+     */
+    return Math.round(
+      eurAmount *
+      EUR_TO_CVE
+    );
+  }
+
+  return roundMoney(
+    eurAmount
+  );
+}
+
+function formatMoney(
+  amount: number,
+  currency: string,
+  language: Language
+) {
+  const locale =
+    language === "pt"
+      ? "pt-PT"
+      : "en-IE";
+
+  if (
+    currency === "CVE"
+  ) {
+    return `${new Intl.NumberFormat(
+      locale,
+      {
+        maximumFractionDigits:
+          0,
+      }
+    ).format(
+      Math.round(
+        amount
+      )
+    )} CVE`;
+  }
+
+  return new Intl.NumberFormat(
+    locale,
+    {
+      style:
+        "currency",
+
+      currency,
+    }
+  ).format(
+    amount
+  );
+}
+
 /* =========================================================
-   ORDER IDENTIFIERS
+   IDENTIFIERS
 ========================================================= */
 
 function randomCode(
-  length = 6
+  length: number
 ) {
-  const chars =
+  const alphabet =
     "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-  let result = "";
+  const bytes =
+    new Uint8Array(
+      length
+    );
 
-  for (
-    let i = 0;
-    i < length;
-    i++
-  ) {
-    result +=
-      chars.charAt(
-        Math.floor(
-          Math.random() *
-            chars.length
-        )
-      );
-  }
+  crypto.getRandomValues(
+    bytes
+  );
 
-  return result;
+  return Array.from(
+    bytes,
+    (byte) =>
+      alphabet[
+        byte %
+        alphabet.length
+      ]
+  ).join("");
 }
 
 function createOrderNumber() {
   const year =
-    new Date().getFullYear();
+    new Date()
+      .getFullYear();
 
-  return (
-    `LUM-${year}-${randomCode(8)}`
-  );
+  return `POK-${year}-${randomCode(
+    8
+  )}`;
 }
 
 function createPaymentReference() {
-  return (
-    `LUM-${randomCode(7)}`
-  );
+  return `POK-${randomCode(
+    7
+  )}`;
 }
 
 /* =========================================================
@@ -225,33 +388,13 @@ function escapeHtml(
     );
 }
 
-function displayCondition(
-  condition: SellCondition
-) {
-  return condition ===
-      "refurbished"
-    ? "Refurbished"
-    : "New";
-}
-
 /* =========================================================
-   EMAIL VALIDATION
-========================================================= */
-
-function isValidEmail(
-  email: string
-) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-    email
-  );
-}
-
-/* =========================================================
-   CONDITION AVAILABILITY
+   CONDITION HELPERS
 ========================================================= */
 
 function productCanBeSoldNew(
-  product: ProductRow
+  product:
+    ProductRow
 ) {
   return (
     product.condition ===
@@ -260,58 +403,116 @@ function productCanBeSoldNew(
 }
 
 function productCanBeSoldRefurbished(
-  product: ProductRow
+  product:
+    ProductRow
 ) {
   return (
     product.condition ===
       "refurbished" ||
-    product.refurbished_enabled
+    product
+      .refurbished_enabled
   );
 }
 
 /* =========================================================
-   NEW PRODUCT PRICE
+   AUTHORITATIVE VARIANT PRICE
+
+   Existing pricing behavior is intentionally preserved.
+
+   1. NEW product sold as new
+      -> variant.sale_price / promotional_price
+
+   2. Dedicated REFURBISHED product
+      -> variant.sale_price / promotional_price
+
+   3. NEW product with optional refurbished condition
+      -> variant.refurbished_sale_price /
+         refurbished_promotional_price
+
+   Currency conversion is applied only AFTER the EUR price
+   has been securely resolved from Supabase.
 ========================================================= */
 
-function getNewProductPrice(
-  product: ProductRow
+function activePrice(
+  normalPrice:
+    | number
+    | string
+    | null,
+  promotionalPrice:
+    | number
+    | string
+    | null
 ) {
-  const salePrice =
+  const normal =
     toNumber(
-      product.sale_price
+      normalPrice
     );
 
-  const promotionalPrice =
+  const promotional =
     toNullableNumber(
-      product.promotional_price
+      promotionalPrice
     );
 
-  if (salePrice <= 0) {
-    throw new Error(
-      "This product does not have a valid sale price."
-    );
+  if (
+    normal <= 0
+  ) {
+    return null;
   }
 
   if (
-    promotionalPrice !==
+    promotional !==
       null &&
-    promotionalPrice > 0 &&
-    promotionalPrice <
-      salePrice
+    promotional > 0 &&
+    promotional <
+      normal
   ) {
-    return promotionalPrice;
+    return promotional;
   }
 
-  return salePrice;
+  return normal;
 }
 
-/* =========================================================
-   REFURBISHED PRODUCT PRICE
-========================================================= */
-
-function getRefurbishedProductPrice(
-  product: ProductRow
+function getVariantPrice(
+  product:
+    ProductRow,
+  variant:
+    VariantRow,
+  condition:
+    SellCondition
 ) {
+  if (
+    condition ===
+    "new"
+  ) {
+    if (
+      !productCanBeSoldNew(
+        product
+      )
+    ) {
+      throw new Error(
+        "This product is not available as new."
+      );
+    }
+
+    const price =
+      activePrice(
+        variant
+          .sale_price,
+        variant
+          .promotional_price
+      );
+
+    if (
+      price === null
+    ) {
+      throw new Error(
+        "Variant price is not configured."
+      );
+    }
+
+    return price;
+  }
+
   if (
     !productCanBeSoldRefurbished(
       product
@@ -322,59 +523,74 @@ function getRefurbishedProductPrice(
     );
   }
 
-  const refurbishedPrice =
-    toNullableNumber(
-      product.refurbished_price
-    );
+  if (
+    product.condition ===
+    "refurbished"
+  ) {
+    const price =
+      activePrice(
+        variant
+          .sale_price,
+        variant
+          .promotional_price
+      );
 
-  const promotionalPrice =
-    toNullableNumber(
-      product.refurbished_promotional_price
+    if (
+      price === null
+    ) {
+      throw new Error(
+        "Refurbished variant price is not configured."
+      );
+    }
+
+    return price;
+  }
+
+  const price =
+    activePrice(
+      variant
+        .refurbished_sale_price,
+      variant
+        .refurbished_promotional_price
     );
 
   if (
-    refurbishedPrice ===
-      null ||
-    refurbishedPrice <= 0
+    price === null
   ) {
     throw new Error(
-      "Refurbished price is not configured for this product."
+      "Refurbished variant price is not configured."
     );
   }
 
-  if (
-    promotionalPrice !==
-      null &&
-    promotionalPrice > 0 &&
-    promotionalPrice <
-      refurbishedPrice
-  ) {
-    return promotionalPrice;
-  }
-
-  return refurbishedPrice;
+  return price;
 }
 
 /* =========================================================
-   PRODUCT PRICE BY CONDITION
+   LEGACY PRODUCT-LEVEL FALLBACK
+
+   Used only when the request genuinely has no variant_id.
 ========================================================= */
 
-function getProductPriceByCondition(
-  product: ProductRow,
-  condition: SellCondition
+function getProductFallbackPrice(
+  product:
+    ProductRow,
+  condition:
+    SellCondition
 ) {
   if (
     condition ===
-    "refurbished"
+      "refurbished" &&
+    product.condition !==
+      "refurbished"
   ) {
-    return (
-      getRefurbishedProductPrice(
-        product
-      )
+    throw new Error(
+      "A variant is required for this refurbished configuration."
     );
   }
 
   if (
+    condition ===
+      "new" &&
     !productCanBeSoldNew(
       product
     )
@@ -384,9 +600,539 @@ function getProductPriceByCondition(
     );
   }
 
-  return getNewProductPrice(
-    product
-  );
+  const price =
+    activePrice(
+      product.sale_price,
+      product
+        .promotional_price
+    );
+
+  if (
+    price === null
+  ) {
+    throw new Error(
+      "This product does not have a valid sale price."
+    );
+  }
+
+  return price;
+}
+
+/* =========================================================
+   EMAIL
+========================================================= */
+
+async function sendOrderEmail({
+  resendApiKey,
+  fromEmail,
+  customerEmail,
+  customerName,
+  customerCountry,
+  customerStateRegion,
+  customerCity,
+  customerStreet,
+  customerHouseNumber,
+  customerAddressLine2,
+  customerPostalCode,
+  orderNumber,
+  productName,
+  storage,
+  color,
+  condition,
+  quantity,
+  unitPrice,
+  totalAmount,
+  displayCurrency,
+  displayUnitPrice,
+  displayTotalAmount,
+  exchangeRate,
+  paymentReference,
+  bank,
+  language,
+}: {
+  resendApiKey: string;
+  fromEmail: string;
+  customerEmail: string;
+  customerName: string;
+  customerCountry: string;
+  customerStateRegion: string;
+  customerCity: string;
+  customerStreet: string;
+  customerHouseNumber: string;
+  customerAddressLine2: string;
+  customerPostalCode: string;
+  orderNumber: string;
+  productName: string;
+  storage:
+    | string
+    | null;
+  color:
+    | string
+    | null;
+  condition:
+    SellCondition;
+  quantity: number;
+  unitPrice: number;
+  totalAmount: number;
+  displayCurrency:
+    DisplayCurrency;
+  displayUnitPrice:
+    number;
+  displayTotalAmount:
+    number;
+  exchangeRate:
+    number;
+  paymentReference:
+    string;
+  bank:
+    BankDetails;
+  language:
+    Language;
+}) {
+  const formattedUnitPrice =
+    formatMoney(
+      unitPrice,
+      SETTLEMENT_CURRENCY,
+      language
+    );
+
+  const formattedTotal =
+    formatMoney(
+      totalAmount,
+      SETTLEMENT_CURRENCY,
+      language
+    );
+
+  const formattedDisplayUnit =
+    formatMoney(
+      displayUnitPrice,
+      displayCurrency,
+      language
+    );
+
+  const formattedDisplayTotal =
+    formatMoney(
+      displayTotalAmount,
+      displayCurrency,
+      language
+    );
+
+  const showCveEquivalent =
+    displayCurrency ===
+    "CVE";
+
+  const conditionLabel =
+    language === "pt"
+      ? condition ===
+          "refurbished"
+        ? "Recondicionado"
+        : "Novo"
+      : condition ===
+          "refurbished"
+        ? "Refurbished"
+        : "New";
+
+  const safeCustomerName =
+    escapeHtml(customerName);
+
+  const safeCustomerCountry =
+    escapeHtml(customerCountry);
+
+  const safeCustomerStateRegion =
+    escapeHtml(customerStateRegion);
+
+  const safeCustomerCity =
+    escapeHtml(customerCity);
+
+  const safeCustomerStreet =
+    escapeHtml(customerStreet);
+
+  const safeCustomerHouseNumber =
+    customerHouseNumber ? escapeHtml(customerHouseNumber) : "";
+
+  const safeCustomerAddressLine2 =
+    customerAddressLine2 ? escapeHtml(customerAddressLine2) : "";
+
+  const safeCustomerPostalCode =
+    customerPostalCode ? escapeHtml(customerPostalCode) : "";
+
+  const safeProductName =
+    escapeHtml(
+      productName
+    );
+
+  const safeOrderNumber =
+    escapeHtml(
+      orderNumber
+    );
+
+  const safeReference =
+    escapeHtml(
+      paymentReference
+    );
+
+  const safeAccountName =
+    escapeHtml(
+      bank.account_name
+    );
+
+  const safeIban =
+    escapeHtml(
+      bank.iban
+    );
+
+  const safeBic =
+    escapeHtml(
+      bank.bic
+    );
+
+  const safeBankName =
+    escapeHtml(
+      bank.bank_name
+    );
+
+  const safeBankCountry =
+    escapeHtml(
+      bank.country
+    );
+
+  const safeStorage =
+    storage
+      ? escapeHtml(
+          storage
+        )
+      : "";
+
+  const safeColor =
+    color
+      ? escapeHtml(
+          color
+        )
+      : "";
+
+  const subject =
+    language === "pt"
+      ? `Instruções de pagamento — ${orderNumber}`
+      : `Payment instructions — ${orderNumber}`;
+
+  const cveTextPt =
+    showCveEquivalent
+      ? `
+
+EQUIVALENTE APRESENTADO EM CVE
+
+Preço unitário: ${formattedDisplayUnit}
+Total: ${formattedDisplayTotal}
+Taxa: 1 EUR = ${exchangeRate} CVE
+
+Nota: o valor em CVE é apresentado para referência. A transferência bancária desta encomenda deve ser feita em EUR.`
+      : "";
+
+  const cveTextEn =
+    showCveEquivalent
+      ? `
+
+CVE DISPLAY EQUIVALENT
+
+Unit price: ${formattedDisplayUnit}
+Total: ${formattedDisplayTotal}
+Rate: 1 EUR = ${exchangeRate} CVE
+
+Note: the CVE amount is shown for reference. The bank transfer for this order must be made in EUR.`
+      : "";
+
+  const text =
+    language === "pt"
+      ? `POKAPOK
+
+Recebemos a sua encomenda.
+
+Olá ${customerName},
+
+Obrigado pela sua encomenda.
+
+DETALHES DA ENCOMENDA
+
+Número: ${orderNumber}
+Produto: ${productName}
+${storage ? `Armazenamento: ${storage}` : ""}
+${color ? `Cor: ${color}` : ""}
+Condição: ${conditionLabel}
+Quantidade: ${quantity}
+Preço unitário: ${formattedUnitPrice}
+Total a transferir: ${formattedTotal}${cveTextPt}
+
+MORADA DE ENTREGA
+
+${customerStreet}${customerHouseNumber ? `, ${customerHouseNumber}` : ""}
+${customerAddressLine2 ? `${customerAddressLine2}\n` : ""}${customerPostalCode ? `${customerPostalCode} ` : ""}${customerCity}
+${customerStateRegion}
+${customerCountry}
+
+DADOS PARA TRANSFERÊNCIA BANCÁRIA
+
+Titular / Beneficiário:
+${bank.account_name}
+
+IBAN:
+${bank.iban}
+
+BIC / SWIFT:
+${bank.bic}
+
+Banco:
+${bank.bank_name}
+
+País do banco:
+${bank.country}
+
+Moeda da transferência:
+${bank.currency}
+
+Montante:
+${formattedTotal}
+
+REFERÊNCIA / DESCRIÇÃO:
+${paymentReference}
+
+IMPORTANTE:
+Introduza exatamente ${paymentReference} na referência, descrição ou mensagem da transferência.
+
+Assim conseguimos associar o pagamento à encomenda ${orderNumber}.
+
+Após confirmação do pagamento, enviaremos uma nova confirmação.
+
+POKAPOK`
+      : `POKAPOK
+
+Your order has been received.
+
+Hi ${customerName},
+
+Thank you for your order.
+
+ORDER DETAILS
+
+Order number: ${orderNumber}
+Product: ${productName}
+${storage ? `Storage: ${storage}` : ""}
+${color ? `Colour: ${color}` : ""}
+Condition: ${conditionLabel}
+Quantity: ${quantity}
+Unit price: ${formattedUnitPrice}
+Total to transfer: ${formattedTotal}${cveTextEn}
+
+DELIVERY ADDRESS
+
+${customerStreet}${customerHouseNumber ? `, ${customerHouseNumber}` : ""}
+${customerAddressLine2 ? `${customerAddressLine2}\n` : ""}${customerPostalCode ? `${customerPostalCode} ` : ""}${customerCity}
+${customerStateRegion}
+${customerCountry}
+
+BANK TRANSFER DETAILS
+
+Beneficiary / Account holder:
+${bank.account_name}
+
+IBAN:
+${bank.iban}
+
+BIC / SWIFT:
+${bank.bic}
+
+Bank:
+${bank.bank_name}
+
+Bank country:
+${bank.country}
+
+Transfer currency:
+${bank.currency}
+
+Amount:
+${formattedTotal}
+
+PAYMENT REFERENCE / DESCRIPTION:
+${paymentReference}
+
+IMPORTANT:
+Enter ${paymentReference} exactly in the reference, description or message field of your transfer.
+
+This allows us to match your payment to order ${orderNumber}.
+
+After payment is confirmed, we will send another confirmation.
+
+POKAPOK`;
+
+  const equivalentHtml =
+    showCveEquivalent
+      ? language === "pt"
+        ? `
+          <div style="background:#eef4ff;border-radius:16px;padding:18px;margin:18px 0;border:1px solid #d7e5ff;">
+            <div style="font-size:12px;font-weight:800;color:#5d6673;letter-spacing:.5px;">EQUIVALENTE EM CVE</div>
+            <div style="font-size:24px;font-weight:900;color:#1261ff;margin-top:6px;">${formattedDisplayTotal}</div>
+            <div style="font-size:13px;color:#5d6673;margin-top:8px;">Taxa: 1 EUR = ${exchangeRate} CVE</div>
+            <div style="font-size:13px;color:#5d6673;margin-top:6px;">O valor em CVE é informativo. A transferência deve ser feita em EUR.</div>
+          </div>`
+        : `
+          <div style="background:#eef4ff;border-radius:16px;padding:18px;margin:18px 0;border:1px solid #d7e5ff;">
+            <div style="font-size:12px;font-weight:800;color:#5d6673;letter-spacing:.5px;">CVE DISPLAY EQUIVALENT</div>
+            <div style="font-size:24px;font-weight:900;color:#1261ff;margin-top:6px;">${formattedDisplayTotal}</div>
+            <div style="font-size:13px;color:#5d6673;margin-top:8px;">Rate: 1 EUR = ${exchangeRate} CVE</div>
+            <div style="font-size:13px;color:#5d6673;margin-top:6px;">The CVE amount is for reference. The bank transfer must be made in EUR.</div>
+          </div>`
+      : "";
+
+  const html =
+    language === "pt"
+      ? `
+<!doctype html>
+<html>
+<body style="margin:0;padding:0;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111;">
+  <div style="max-width:620px;margin:0 auto;padding:32px 20px;">
+    <div style="background:#fff;border-radius:24px;padding:30px;border:1px solid #e5e5e5;">
+      <div style="font-weight:900;letter-spacing:2px;color:#1261ff;margin-bottom:22px;">POKAPOK</div>
+
+      <h1 style="font-size:28px;margin:0 0 10px;">Recebemos a sua encomenda.</h1>
+      <p style="color:#555;line-height:1.6;">Olá ${safeCustomerName}, use os dados abaixo para concluir o pagamento.</p>
+
+      <div style="background:#f6f7f9;border-radius:16px;padding:18px;margin:22px 0;">
+        <strong>Encomenda ${safeOrderNumber}</strong><br><br>
+        ${safeProductName}<br>
+        ${safeStorage ? `${safeStorage}<br>` : ""}
+        ${safeColor ? `${safeColor}<br>` : ""}
+        ${conditionLabel}<br>
+        Quantidade: ${quantity}<br><br>
+        <strong>Total a transferir: ${formattedTotal}</strong>
+      </div>
+
+      ${equivalentHtml}
+
+      <h2 style="font-size:20px;">Morada de entrega</h2>
+      <div style="background:#f6f7f9;border-radius:16px;padding:18px;margin:14px 0 22px;line-height:1.7;">
+        ${safeCustomerStreet}${safeCustomerHouseNumber ? `, ${safeCustomerHouseNumber}` : ""}<br>
+        ${safeCustomerAddressLine2 ? `${safeCustomerAddressLine2}<br>` : ""}
+        ${safeCustomerPostalCode ? `${safeCustomerPostalCode} ` : ""}${safeCustomerCity}<br>
+        ${safeCustomerStateRegion}<br>
+        ${safeCustomerCountry}
+      </div>
+
+      <h2 style="font-size:20px;">Transferência bancária</h2>
+      <p><strong>Titular:</strong><br>${safeAccountName}</p>
+      <p><strong>IBAN:</strong><br>${safeIban}</p>
+      <p><strong>BIC / SWIFT:</strong><br>${safeBic}</p>
+      <p><strong>Banco:</strong><br>${safeBankName}</p>
+      <p><strong>País:</strong><br>${safeBankCountry}</p>
+      <p><strong>Moeda:</strong><br>${bank.currency}</p>
+      <p><strong>Montante:</strong><br>${formattedTotal}</p>
+
+      <div style="background:#111827;border-radius:16px;padding:18px;margin-top:22px;">
+        <div style="font-size:12px;font-weight:700;color:#c7ccd4;">REFERÊNCIA / DESCRIÇÃO</div>
+        <div style="font-size:24px;font-weight:900;color:#fff;margin-top:6px;">${safeReference}</div>
+      </div>
+
+      <p style="color:#555;line-height:1.6;margin-top:22px;">
+        Introduza esta referência exatamente no campo de descrição/mensagem da transferência.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`
+      : `
+<!doctype html>
+<html>
+<body style="margin:0;padding:0;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111;">
+  <div style="max-width:620px;margin:0 auto;padding:32px 20px;">
+    <div style="background:#fff;border-radius:24px;padding:30px;border:1px solid #e5e5e5;">
+      <div style="font-weight:900;letter-spacing:2px;color:#1261ff;margin-bottom:22px;">POKAPOK</div>
+
+      <h1 style="font-size:28px;margin:0 0 10px;">We received your order.</h1>
+      <p style="color:#555;line-height:1.6;">Hi ${safeCustomerName}, use the bank details below to complete your payment.</p>
+
+      <div style="background:#f6f7f9;border-radius:16px;padding:18px;margin:22px 0;">
+        <strong>Order ${safeOrderNumber}</strong><br><br>
+        ${safeProductName}<br>
+        ${safeStorage ? `${safeStorage}<br>` : ""}
+        ${safeColor ? `${safeColor}<br>` : ""}
+        ${conditionLabel}<br>
+        Quantity: ${quantity}<br><br>
+        <strong>Total to transfer: ${formattedTotal}</strong>
+      </div>
+
+      ${equivalentHtml}
+
+      <h2 style="font-size:20px;">Delivery address</h2>
+      <div style="background:#f6f7f9;border-radius:16px;padding:18px;margin:14px 0 22px;line-height:1.7;">
+        ${safeCustomerStreet}${safeCustomerHouseNumber ? `, ${safeCustomerHouseNumber}` : ""}<br>
+        ${safeCustomerAddressLine2 ? `${safeCustomerAddressLine2}<br>` : ""}
+        ${safeCustomerPostalCode ? `${safeCustomerPostalCode} ` : ""}${safeCustomerCity}<br>
+        ${safeCustomerStateRegion}<br>
+        ${safeCustomerCountry}
+      </div>
+
+      <h2 style="font-size:20px;">Bank transfer</h2>
+      <p><strong>Account holder:</strong><br>${safeAccountName}</p>
+      <p><strong>IBAN:</strong><br>${safeIban}</p>
+      <p><strong>BIC / SWIFT:</strong><br>${safeBic}</p>
+      <p><strong>Bank:</strong><br>${safeBankName}</p>
+      <p><strong>Country:</strong><br>${safeBankCountry}</p>
+      <p><strong>Currency:</strong><br>${bank.currency}</p>
+      <p><strong>Amount:</strong><br>${formattedTotal}</p>
+
+      <div style="background:#111827;border-radius:16px;padding:18px;margin-top:22px;">
+        <div style="font-size:12px;font-weight:700;color:#c7ccd4;">PAYMENT REFERENCE</div>
+        <div style="font-size:24px;font-weight:900;color:#fff;margin-top:6px;">${safeReference}</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  const response =
+    await fetch(
+      "https://api.resend.com/emails",
+      {
+        method:
+          "POST",
+
+        headers: {
+          Authorization:
+            `Bearer ${resendApiKey}`,
+
+          "Content-Type":
+            "application/json",
+        },
+
+        body:
+          JSON.stringify({
+            from:
+              fromEmail,
+
+            to: [
+              customerEmail,
+            ],
+
+            subject,
+
+            html,
+
+            text,
+          }),
+      }
+    );
+
+  const responseBody =
+    await response.text();
+
+  if (
+    !response.ok
+  ) {
+    throw new Error(
+      `Resend error ${response.status}: ${responseBody}`
+    );
+  }
+
+  return responseBody;
 }
 
 /* =========================================================
@@ -394,13 +1140,9 @@ function getProductPriceByCondition(
 ========================================================= */
 
 Deno.serve(
-  async (req) => {
-    /*
-     * ----------------------------------------------------
-     * CORS
-     * ----------------------------------------------------
-     */
-
+  async (
+    req: Request
+  ) => {
     if (
       req.method ===
       "OPTIONS"
@@ -421,6 +1163,7 @@ Deno.serve(
       return jsonResponse(
         {
           success: false,
+
           error:
             "Method not allowed.",
         },
@@ -429,11 +1172,9 @@ Deno.serve(
     }
 
     try {
-      /*
-       * ----------------------------------------------------
-       * ENVIRONMENT VARIABLES
-       * ----------------------------------------------------
-       */
+      /* =====================================================
+         ENVIRONMENT
+      ===================================================== */
 
       const supabaseUrl =
         Deno.env.get(
@@ -450,250 +1191,132 @@ Deno.serve(
           "RESEND_API_KEY"
         );
 
+      /*
+       * New POKAPOK names are preferred.
+       * The old LUMINA names remain as fallbacks so your
+       * existing Supabase secrets keep working immediately.
+       */
       const fromEmail =
+        Deno.env.get(
+          "POKAPOK_FROM_EMAIL"
+        ) ??
         Deno.env.get(
           "LUMINA_FROM_EMAIL"
         );
 
-      /*
-       * BANK DETAILS
-       */
+      const accountName =
+        Deno.env.get(
+          "POKAPOK_BANK_ACCOUNT_NAME"
+        ) ??
+        Deno.env.get(
+          "LUMINA_BANK_ACCOUNT_NAME"
+        );
 
       const iban =
+        Deno.env.get(
+          "POKAPOK_BANK_IBAN"
+        ) ??
         Deno.env.get(
           "LUMINA_BANK_IBAN"
         );
 
       const bic =
         Deno.env.get(
+          "POKAPOK_BANK_BIC"
+        ) ??
+        Deno.env.get(
           "LUMINA_BANK_BIC"
         );
 
-      const accountName =
-        Deno.env.get(
-          "LUMINA_BANK_ACCOUNT_NAME"
-        );
-
       const bankName =
+        Deno.env.get(
+          "POKAPOK_BANK_NAME"
+        ) ??
         Deno.env.get(
           "LUMINA_BANK_NAME"
         );
 
       const bankCountry =
         Deno.env.get(
+          "POKAPOK_BANK_COUNTRY"
+        ) ??
+        Deno.env.get(
           "LUMINA_BANK_COUNTRY"
         ) ??
-        "Portugal";
+        "Netherlands";
 
-      const currency =
+      const configuredBankCurrency =
         (
+          Deno.env.get(
+            "POKAPOK_BANK_CURRENCY"
+          ) ??
           Deno.env.get(
             "LUMINA_BANK_CURRENCY"
           ) ??
-          "EUR"
+          SETTLEMENT_CURRENCY
         )
           .trim()
           .toUpperCase();
 
-      /*
-       * ----------------------------------------------------
-       * ENV VALIDATION
-       * ----------------------------------------------------
-       */
-
-      if (!supabaseUrl) {
+      if (
+        !supabaseUrl
+      ) {
         throw new Error(
           "SUPABASE_URL is not configured."
         );
       }
 
-      if (!serviceRoleKey) {
+      if (
+        !serviceRoleKey
+      ) {
         throw new Error(
           "SUPABASE_SERVICE_ROLE_KEY is not configured."
         );
       }
 
-      if (!resendApiKey) {
+      if (
+        !accountName ||
+        !iban ||
+        !bic ||
+        !bankName
+      ) {
         throw new Error(
-          "RESEND_API_KEY is not configured."
-        );
-      }
-
-      if (!fromEmail) {
-        throw new Error(
-          "LUMINA_FROM_EMAIL is not configured."
-        );
-      }
-
-      if (!accountName) {
-        throw new Error(
-          "LUMINA_BANK_ACCOUNT_NAME is not configured."
-        );
-      }
-
-      if (!iban) {
-        throw new Error(
-          "LUMINA_BANK_IBAN is not configured."
-        );
-      }
-
-      if (!bic) {
-        throw new Error(
-          "LUMINA_BANK_BIC is not configured."
-        );
-      }
-
-      if (!bankName) {
-        throw new Error(
-          "LUMINA_BANK_NAME is not configured."
+          "Bank transfer details are not fully configured."
         );
       }
 
       /*
-       * ----------------------------------------------------
-       * READ REQUEST
-       * ----------------------------------------------------
-       *
-       * IMPORTANT:
-       *
-       * We intentionally DO NOT accept:
-       *
-       * - product_name
-       * - storage
-       * - color
-       * - price
-       * - total_amount
-       *
-       * These values come from Supabase.
-       * ----------------------------------------------------
+       * Current receiving account / checkout is EUR.
+       * CVE is intentionally not accepted as the settlement
+       * currency until a CVE-capable receiving rail is added.
        */
-
-      let body: Record<
-        string,
-        unknown
-      >;
-
-      try {
-        body =
-          await req.json();
-      } catch {
-        return badRequest(
-          "Invalid request body."
-        );
-      }
-
-      const customerName =
-        String(
-          body.customer_name ??
-            ""
-        ).trim();
-
-      const customerEmail =
-        String(
-          body.customer_email ??
-            ""
-        )
-          .trim()
-          .toLowerCase();
-
-      const productId =
-        String(
-          body.product_id ??
-            ""
-        ).trim();
-
-      const variantId =
-        body.variant_id
-          ? String(
-              body.variant_id
-            ).trim()
-          : null;
-
-      const requestedCondition =
-        String(
-          body.condition ??
-            "new"
-        )
-          .trim()
-          .toLowerCase();
-
-      const rawQuantity =
-        Number(
-          body.quantity ??
-            1
-        );
-
-      /*
-       * ----------------------------------------------------
-       * REQUEST VALIDATION
-       * ----------------------------------------------------
-       */
-
-      if (!customerName) {
-        return badRequest(
-          "Customer name is required."
-        );
-      }
-
-      if (!customerEmail) {
-        return badRequest(
-          "Customer email is required."
-        );
-      }
-
       if (
-        !isValidEmail(
-          customerEmail
-        )
+        configuredBankCurrency !==
+        SETTLEMENT_CURRENCY
       ) {
-        return badRequest(
-          "Invalid customer email."
+        throw new Error(
+          "The current bank-transfer checkout must be configured in EUR."
         );
       }
 
-      if (!productId) {
-        return badRequest(
-          "Product ID is required."
-        );
-      }
+      const bank:
+        BankDetails = {
+        account_name:
+          accountName,
 
-      if (
-        requestedCondition !==
-          "new" &&
-        requestedCondition !==
-          "refurbished"
-      ) {
-        return badRequest(
-          "Condition must be new or refurbished."
-        );
-      }
+        iban,
 
-      const condition =
-        requestedCondition as
-          SellCondition;
+        bic,
 
-      if (
-        !Number.isFinite(
-          rawQuantity
-        ) ||
-        !Number.isInteger(
-          rawQuantity
-        ) ||
-        rawQuantity < 1
-      ) {
-        return badRequest(
-          "Quantity must be a positive integer."
-        );
-      }
+        bank_name:
+          bankName,
 
-      const quantity =
-        rawQuantity;
+        country:
+          bankCountry,
 
-      /*
-       * ----------------------------------------------------
-       * SUPABASE ADMIN CLIENT
-       * ----------------------------------------------------
-       */
+        currency:
+          SETTLEMENT_CURRENCY,
+      };
 
       const supabase =
         createClient(
@@ -710,15 +1333,203 @@ Deno.serve(
           }
         );
 
-      /*
-       * ----------------------------------------------------
-       * LOAD AUTHORITATIVE PRODUCT
-       * ----------------------------------------------------
-       */
+      /* =====================================================
+         REQUEST BODY
+      ===================================================== */
+
+      let body:
+        Record<
+          string,
+          unknown
+        >;
+
+      try {
+        body =
+          await req.json();
+      } catch {
+        return badRequest(
+          "Invalid request body."
+        );
+      }
+
+      const customerName =
+        cleanString(
+          body.customer_name
+        );
+
+      const customerEmail =
+        cleanString(
+          body.customer_email
+        ).toLowerCase();
+
+      const customerWhatsapp =
+        cleanString(
+          body.customer_whatsapp
+        );
+
+      const customerCountry =
+        cleanString(body.customer_country);
+
+      const customerStateRegion =
+        cleanString(body.customer_state_region);
+
+      const customerCity =
+        cleanString(body.customer_city);
+
+      const customerStreet =
+        cleanString(body.customer_street);
+
+      const customerHouseNumber =
+        cleanString(body.customer_house_number);
+
+      const customerAddressLine2 =
+        cleanString(body.customer_address_line_2);
+
+      const customerPostalCode =
+        cleanString(body.customer_postal_code);
+
+      const customerNotes =
+        cleanString(
+          body.customer_notes
+        );
+
+      const productId =
+        cleanString(
+          body.product_id
+        );
+
+      const variantId =
+        cleanString(
+          body.variant_id
+        ) || null;
+
+      const conditionRaw =
+        cleanString(
+          body.condition
+        ).toLowerCase();
+
+      const paymentMethod =
+        cleanString(
+          body.payment_method
+        ) ||
+        "bank_transfer";
+
+      const language:
+        Language =
+        cleanString(
+          body.language
+        ).toLowerCase() ===
+        "en"
+          ? "en"
+          : "pt";
+
+      const displayCurrency =
+        normalizeDisplayCurrency(
+          body.display_currency
+        );
+
+      const quantity =
+        Number(
+          body.quantity ??
+          1
+        );
+
+      /* =====================================================
+         INPUT VALIDATION
+      ===================================================== */
+
+      if (
+        !customerName
+      ) {
+        return badRequest(
+          "Customer name is required."
+        );
+      }
+
+      if (
+        !customerEmail ||
+        !isValidEmail(
+          customerEmail
+        )
+      ) {
+        return badRequest(
+          "A valid customer email is required."
+        );
+      }
+
+      if (
+        !customerWhatsapp ||
+        !customerCountry ||
+        !customerStateRegion ||
+        !customerCity ||
+        !customerStreet
+      ) {
+        return badRequest(
+          "Complete delivery address is required."
+        );
+      }
+
+      if (
+        !productId
+      ) {
+        return badRequest(
+          "Product ID is required."
+        );
+      }
+
+      if (
+        conditionRaw !==
+          "new" &&
+        conditionRaw !==
+          "refurbished"
+      ) {
+        return badRequest(
+          "Invalid product condition."
+        );
+      }
+
+      if (
+        displayCurrency ===
+        null
+      ) {
+        return badRequest(
+          "Invalid display currency. Use CVE or EUR."
+        );
+      }
+
+      const condition =
+        conditionRaw as
+          SellCondition;
+
+      if (
+        !Number.isInteger(
+          quantity
+        ) ||
+        quantity < 1
+      ) {
+        return badRequest(
+          "Quantity must be a positive whole number."
+        );
+      }
+
+      if (
+        paymentMethod !==
+        "bank_transfer"
+      ) {
+        return badRequest(
+          "Only bank transfer is currently available."
+        );
+      }
+
+      /* =====================================================
+         PRODUCT
+      ===================================================== */
 
       const {
-        data: productData,
-        error: productError,
+        data:
+          productData,
+        error:
+          productError,
       } =
         await supabase
           .from(
@@ -732,9 +1543,6 @@ Deno.serve(
             refurbished_enabled,
             sale_price,
             promotional_price,
-            refurbished_price,
-            refurbished_promotional_price,
-            stock,
             available,
             published
           `)
@@ -744,7 +1552,9 @@ Deno.serve(
           )
           .maybeSingle();
 
-      if (productError) {
+      if (
+        productError
+      ) {
         console.error(
           "Product lookup error:",
           productError
@@ -755,42 +1565,26 @@ Deno.serve(
         );
       }
 
-      if (!productData) {
+      if (
+        !productData
+      ) {
         return badRequest(
           "The selected product could not be found."
         );
       }
 
       const product =
-        productData as ProductRow;
-
-      /*
-       * ----------------------------------------------------
-       * PRODUCT AVAILABILITY
-       * ----------------------------------------------------
-       */
+        productData as
+          ProductRow;
 
       if (
-        !product.published
-      ) {
-        return badRequest(
-          "This product is not currently available for purchase."
-        );
-      }
-
-      if (
+        !product.published ||
         !product.available
       ) {
         return badRequest(
           "This product is currently unavailable."
         );
       }
-
-      /*
-       * ----------------------------------------------------
-       * CONDITION VALIDATION
-       * ----------------------------------------------------
-       */
 
       if (
         condition ===
@@ -816,42 +1610,21 @@ Deno.serve(
         );
       }
 
-      /*
-       * ----------------------------------------------------
-       * AUTHORITATIVE BASE PRICE
-       * ----------------------------------------------------
-       */
-
-      let basePrice: number;
-
-      try {
-        basePrice =
-          getProductPriceByCondition(
-            product,
-            condition
-          );
-      } catch (error) {
-        return badRequest(
-          error instanceof Error
-            ? error.message
-            : "Invalid product price."
-        );
-      }
-
-      /*
-       * ----------------------------------------------------
-       * LOAD VARIANT
-       * ----------------------------------------------------
-       */
+      /* =====================================================
+         VARIANT
+      ===================================================== */
 
       let variant:
         | VariantRow
         | null =
         null;
 
-      if (variantId) {
+      if (
+        variantId
+      ) {
         const {
-          data: variantData,
+          data:
+            variantData,
           error:
             variantError,
         } =
@@ -865,9 +1638,11 @@ Deno.serve(
               storage,
               color,
               sku,
-              price_adjustment,
-              stock,
-              available
+              available,
+              sale_price,
+              promotional_price,
+              refurbished_sale_price,
+              refurbished_promotional_price
             `)
             .eq(
               "id",
@@ -875,7 +1650,9 @@ Deno.serve(
             )
             .maybeSingle();
 
-        if (variantError) {
+        if (
+          variantError
+        ) {
           console.error(
             "Variant lookup error:",
             variantError
@@ -886,7 +1663,9 @@ Deno.serve(
           );
         }
 
-        if (!variantData) {
+        if (
+          !variantData
+        ) {
           return badRequest(
             "The selected product variant could not be found."
           );
@@ -895,17 +1674,6 @@ Deno.serve(
         variant =
           variantData as
             VariantRow;
-
-        /*
-         * Critical security check.
-         *
-         * A customer cannot send:
-         *
-         * product A ID
-         * +
-         * cheaper variant belonging
-         * to product B.
-         */
 
         if (
           variant.product_id !==
@@ -923,59 +1691,38 @@ Deno.serve(
             "The selected product variant is currently unavailable."
           );
         }
-
-        const variantStock =
-          toNumber(
-            variant.stock
-          );
-
-        if (
-          variantStock <
-          quantity
-        ) {
-          return badRequest(
-            "There is not enough stock available for the selected variant."
-          );
-        }
-      } else {
-        /*
-         * Products without variants
-         * use product-level stock.
-         */
-
-        const productStock =
-          toNumber(
-            product.stock
-          );
-
-        if (
-          productStock <
-          quantity
-        ) {
-          return badRequest(
-            "There is not enough stock available for this product."
-          );
-        }
       }
 
-      /*
-       * ----------------------------------------------------
-       * AUTHORITATIVE PRICE CALCULATION
-       * ----------------------------------------------------
-       */
+      /* =====================================================
+         AUTHORITATIVE EUR PRICE
+      ===================================================== */
 
-      const variantPriceAdjustment =
-        variant
-          ? toNumber(
-              variant.price_adjustment
-            )
-          : 0;
+      let unitPrice:
+        number;
 
-      const unitPrice =
-        roundMoney(
-          basePrice +
-            variantPriceAdjustment
+      try {
+        unitPrice =
+          roundMoney(
+            variant
+              ? getVariantPrice(
+                  product,
+                  variant,
+                  condition
+                )
+              : getProductFallbackPrice(
+                  product,
+                  condition
+                )
+          );
+      } catch (
+        error
+      ) {
+        return badRequest(
+          error instanceof Error
+            ? error.message
+            : "Invalid product price."
         );
+      }
 
       if (
         !Number.isFinite(
@@ -983,47 +1730,61 @@ Deno.serve(
         ) ||
         unitPrice <= 0
       ) {
-        throw new Error(
-          "Calculated unit price is invalid."
+        return badRequest(
+          "The selected configuration does not have a valid price."
         );
       }
 
       const totalAmount =
         roundMoney(
           unitPrice *
-            quantity
+          quantity
         );
 
       /*
-       * ----------------------------------------------------
-       * AUTHORITATIVE PRODUCT DETAILS
-       * ----------------------------------------------------
+       * Display conversion is server-calculated.
+       * The browser never supplies an exchange rate.
        */
+      const exchangeRate =
+        displayCurrency ===
+        "CVE"
+          ? EUR_TO_CVE
+          : 1;
+
+      const displayUnitPrice =
+        convertEurForDisplay(
+          unitPrice,
+          displayCurrency
+        );
+
+      const displayTotalAmount =
+        convertEurForDisplay(
+          totalAmount,
+          displayCurrency
+        );
 
       const productName =
-        String(
+        cleanString(
           product.name
-        ).trim();
+        );
 
       const storage =
         variant?.storage
-          ? String(
+          ? cleanString(
               variant.storage
-            ).trim()
+            )
           : null;
 
       const color =
         variant?.color
-          ? String(
+          ? cleanString(
               variant.color
-            ).trim()
+            )
           : null;
 
-      /*
-       * ----------------------------------------------------
-       * GENERATE ORDER IDENTIFIERS
-       * ----------------------------------------------------
-       */
+      /* =====================================================
+         IDENTIFIERS
+      ===================================================== */
 
       const orderNumber =
         createOrderNumber();
@@ -1031,15 +1792,15 @@ Deno.serve(
       const paymentReference =
         createPaymentReference();
 
-      /*
-       * ----------------------------------------------------
-       * CREATE ORDER
-       * ----------------------------------------------------
-       */
+      /* =====================================================
+         INSERT ORDER
+      ===================================================== */
 
       const {
-        data: order,
-        error: insertError,
+        data:
+          order,
+        error:
+          insertError,
       } =
         await supabase
           .from(
@@ -1058,6 +1819,44 @@ Deno.serve(
             customer_email:
               customerEmail,
 
+            customer_whatsapp:
+              customerWhatsapp ||
+              null,
+
+            customer_country:
+              customerCountry || null,
+
+            customer_state_region:
+              customerStateRegion || null,
+
+            customer_city:
+              customerCity || null,
+
+            customer_street:
+              customerStreet || null,
+
+            customer_house_number:
+              customerHouseNumber || null,
+
+            customer_address_line_2:
+              customerAddressLine2 || null,
+
+            customer_postal_code:
+              customerPostalCode || null,
+
+            customer_notes:
+              customerNotes ||
+              null,
+
+            language,
+
+            product_id:
+              product.id,
+
+            variant_id:
+              variant?.id ??
+              null,
+
             product_name:
               productName,
 
@@ -1069,8 +1868,32 @@ Deno.serve(
 
             quantity,
 
+            /*
+             * Authoritative settlement amounts stay EUR.
+             */
+            unit_price:
+              unitPrice,
+
             total_amount:
               totalAmount,
+
+            currency:
+              SETTLEMENT_CURRENCY,
+
+            /*
+             * Customer display values are stored separately.
+             */
+            display_currency:
+              displayCurrency,
+
+            display_unit_price:
+              displayUnitPrice,
+
+            display_total_amount:
+              displayTotalAmount,
+
+            exchange_rate:
+              exchangeRate,
 
             payment_method:
               "bank_transfer",
@@ -1080,11 +1903,16 @@ Deno.serve(
 
             order_status:
               "pending",
+
+            payment_received_at:
+              null,
           })
           .select()
           .single();
 
-      if (insertError) {
+      if (
+        insertError
+      ) {
         console.error(
           "Order insert error:",
           insertError
@@ -1095,1032 +1923,84 @@ Deno.serve(
         );
       }
 
-      /*
-       * ----------------------------------------------------
-       * FORMAT VALUES
-       * ----------------------------------------------------
-       */
+      /* =====================================================
+         EMAIL
 
-      const formattedUnitPrice =
-        new Intl.NumberFormat(
-          "en-IE",
-          {
-            style:
-              "currency",
+         The order remains created even if Resend fails.
+      ===================================================== */
 
-            currency,
-          }
-        ).format(
-          unitPrice
-        );
+      let emailSent =
+        false;
 
-      const formattedAmount =
-        new Intl.NumberFormat(
-          "en-IE",
-          {
-            style:
-              "currency",
-
-            currency,
-          }
-        ).format(
-          totalAmount
-        );
-
-      const safeCustomerName =
-        escapeHtml(
-          customerName
-        );
-
-      const safeProductName =
-        escapeHtml(
-          productName
-        );
-
-      const safeOrderNumber =
-        escapeHtml(
-          orderNumber
-        );
-
-      const safeReference =
-        escapeHtml(
-          paymentReference
-        );
-
-      const safeAccountName =
-        escapeHtml(
-          accountName
-        );
-
-      const safeIban =
-        escapeHtml(
-          iban
-        );
-
-      const safeBic =
-        escapeHtml(
-          bic
-        );
-
-      const safeBankName =
-        escapeHtml(
-          bankName
-        );
-
-      const safeBankCountry =
-        escapeHtml(
-          bankCountry
-        );
-
-      const safeCurrency =
-        escapeHtml(
-          currency
-        );
-
-      const safeCondition =
-        escapeHtml(
-          displayCondition(
-            condition
-          )
-        );
-
-      const safeStorage =
-        storage
-          ? escapeHtml(
-              storage
-            )
-          : null;
-
-      const safeColor =
-        color
-          ? escapeHtml(
-              color
-            )
-          : null;
-
-      /*
-       * ----------------------------------------------------
-       * PLAIN TEXT EMAIL
-       * ----------------------------------------------------
-       */
-
-      const emailText = `
-LUMINA PHONES
-
-Your order has been received
-
-Hi ${customerName},
-
-Thank you for your order.
-
-ORDER DETAILS
-
-Order number: ${orderNumber}
-Product: ${productName}
-${storage ? `Storage: ${storage}` : ""}
-${color ? `Colour: ${color}` : ""}
-Condition: ${displayCondition(condition)}
-Quantity: ${quantity}
-Unit price: ${formattedUnitPrice}
-Total to transfer: ${formattedAmount}
-
-INTERNATIONAL BANK TRANSFER DETAILS
-
-Beneficiary / Account holder:
-${accountName}
-
-IBAN:
-${iban}
-
-BIC / SWIFT:
-${bic}
-
-Bank:
-${bankName}
-
-Bank country:
-${bankCountry}
-
-Transfer currency:
-${currency}
-
-Amount:
-${formattedAmount}
-
-PAYMENT REFERENCE / DESCRIPTION:
-${paymentReference}
-
-IMPORTANT:
-Enter ${paymentReference} exactly in the reference, description or message field of your bank transfer.
-
-This allows us to match your payment to order ${orderNumber}.
-
-Once your payment has been received and verified, we will send you another email confirming your payment and estimated delivery time.
-
-Lumina Phones
-`.trim();
-
-      /*
-       * ----------------------------------------------------
-       * HTML EMAIL
-       * ----------------------------------------------------
-       */
-
-      const emailHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
-  />
-
-  <title>
-    Payment details for ${safeOrderNumber}
-  </title>
-</head>
-
-<body
-  style="
-    margin:0;
-    padding:0;
-    background:#f4f6f8;
-    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,Helvetica,sans-serif;
-    color:#111827;
-  "
->
-
-<table
-  width="100%"
-  cellpadding="0"
-  cellspacing="0"
-  border="0"
-  role="presentation"
-  style="
-    width:100%;
-    background:#f4f6f8;
-  "
->
-<tr>
-<td
-  align="center"
-  style="padding:36px 16px;"
->
-
-<table
-  width="600"
-  cellpadding="0"
-  cellspacing="0"
-  border="0"
-  role="presentation"
-  style="
-    width:100%;
-    max-width:600px;
-    background:#ffffff;
-    border:1px solid #e5e7eb;
-    border-radius:18px;
-    overflow:hidden;
-  "
->
-
-<!-- HEADER -->
-
-<tr>
-<td
-  style="
-    background:#111827;
-    padding:30px 34px;
-    color:#ffffff;
-  "
->
-
-  <div
-    style="
-      font-size:22px;
-      font-weight:800;
-      letter-spacing:3px;
-    "
-  >
-    LUMINA
-  </div>
-
-  <div
-    style="
-      margin-top:5px;
-      font-size:12px;
-      color:#d1d5db;
-    "
-  >
-    Smartphones
-  </div>
-
-</td>
-</tr>
-
-<!-- BODY -->
-
-<tr>
-<td style="padding:34px;">
-
-  <h1
-    style="
-      margin:0 0 14px;
-      font-size:26px;
-      line-height:1.25;
-      color:#111827;
-    "
-  >
-    Your order has been received
-  </h1>
-
-  <p
-    style="
-      margin:0 0 14px;
-      color:#4b5563;
-      font-size:15px;
-      line-height:1.7;
-    "
-  >
-    Hi ${safeCustomerName},
-  </p>
-
-  <p
-    style="
-      margin:0 0 28px;
-      color:#4b5563;
-      font-size:15px;
-      line-height:1.7;
-    "
-  >
-    Thank you for your order.
-    Please complete the bank transfer
-    using the payment information below.
-  </p>
-
-  <!-- ORDER SUMMARY -->
-
-  <div
-    style="
-      padding:22px;
-      background:#f8fafc;
-      border-radius:14px;
-      margin-bottom:28px;
-    "
-  >
-
-    <div
-      style="
-        font-size:11px;
-        font-weight:700;
-        color:#9ca3af;
-        letter-spacing:1px;
-      "
-    >
-      ORDER SUMMARY
-    </div>
-
-    <div
-      style="
-        margin-top:10px;
-        font-size:18px;
-        font-weight:700;
-        color:#111827;
-      "
-    >
-      ${safeProductName}
-    </div>
-
-    ${
-      safeStorage
-        ? `
-          <div
-            style="
-              margin-top:8px;
-              color:#6b7280;
-              font-size:14px;
-            "
-          >
-            Storage: ${safeStorage}
-          </div>
-        `
-        : ""
-    }
-
-    ${
-      safeColor
-        ? `
-          <div
-            style="
-              margin-top:4px;
-              color:#6b7280;
-              font-size:14px;
-            "
-          >
-            Colour: ${safeColor}
-          </div>
-        `
-        : ""
-    }
-
-    <div
-      style="
-        margin-top:4px;
-        color:#6b7280;
-        font-size:14px;
-      "
-    >
-      Condition: ${safeCondition}
-    </div>
-
-    <div
-      style="
-        margin-top:4px;
-        color:#6b7280;
-        font-size:14px;
-      "
-    >
-      Quantity: ${quantity}
-    </div>
-
-    <div
-      style="
-        margin-top:4px;
-        color:#6b7280;
-        font-size:14px;
-      "
-    >
-      Unit price: ${formattedUnitPrice}
-    </div>
-
-  </div>
-
-  <!-- ORDER INFORMATION -->
-
-  <table
-    width="100%"
-    cellpadding="0"
-    cellspacing="0"
-    border="0"
-    role="presentation"
-    style="margin-bottom:28px;"
-  >
-
-    <tr>
-
-      <td
-        width="50%"
-        valign="top"
-        style="padding-right:10px;"
-      >
-        <div
-          style="
-            font-size:11px;
-            font-weight:700;
-            color:#9ca3af;
-            letter-spacing:1px;
-          "
-        >
-          ORDER NUMBER
-        </div>
-
-        <div
-          style="
-            margin-top:6px;
-            font-size:15px;
-            font-weight:700;
-            color:#111827;
-          "
-        >
-          ${safeOrderNumber}
-        </div>
-      </td>
-
-      <td
-        width="50%"
-        valign="top"
-      >
-        <div
-          style="
-            font-size:11px;
-            font-weight:700;
-            color:#9ca3af;
-            letter-spacing:1px;
-          "
-        >
-          STATUS
-        </div>
-
-        <div
-          style="
-            margin-top:6px;
-            font-size:15px;
-            font-weight:700;
-            color:#92400e;
-          "
-        >
-          Awaiting payment
-        </div>
-      </td>
-
-    </tr>
-
-  </table>
-
-  <!-- TOTAL -->
-
-  <div
-    style="
-      margin-bottom:30px;
-    "
-  >
-
-    <div
-      style="
-        font-size:11px;
-        font-weight:700;
-        color:#9ca3af;
-        letter-spacing:1px;
-      "
-    >
-      TOTAL TO TRANSFER
-    </div>
-
-    <div
-      style="
-        margin-top:6px;
-        font-size:30px;
-        font-weight:800;
-        color:#111827;
-      "
-    >
-      ${formattedAmount}
-    </div>
-
-    <div
-      style="
-        margin-top:4px;
-        font-size:13px;
-        color:#6b7280;
-      "
-    >
-      Currency: ${safeCurrency}
-    </div>
-
-  </div>
-
-  <!-- INTERNATIONAL BANK TRANSFER -->
-
-  <div
-    style="
-      border:1px solid #dfe3e8;
-      border-radius:14px;
-      overflow:hidden;
-      margin-bottom:24px;
-    "
-  >
-
-    <div
-      style="
-        background:#f8fafc;
-        border-bottom:1px solid #e5e7eb;
-        padding:18px 22px;
-      "
-    >
-
-      <div
-        style="
-          font-size:16px;
-          font-weight:700;
-          color:#111827;
-        "
-      >
-        International bank transfer
-      </div>
-
-      <div
-        style="
-          margin-top:4px;
-          font-size:13px;
-          color:#6b7280;
-        "
-      >
-        Use these details to complete your payment.
-      </div>
-
-    </div>
-
-    <div style="padding:22px;">
-
-      <!-- BENEFICIARY -->
-
-      <div style="margin-bottom:20px;">
-
-        <div
-          style="
-            font-size:11px;
-            color:#9ca3af;
-            font-weight:700;
-            letter-spacing:1px;
-          "
-        >
-          BENEFICIARY / ACCOUNT HOLDER
-        </div>
-
-        <div
-          style="
-            margin-top:5px;
-            font-size:15px;
-            font-weight:700;
-            color:#111827;
-          "
-        >
-          ${safeAccountName}
-        </div>
-
-      </div>
-
-      <!-- IBAN -->
-
-      <div style="margin-bottom:20px;">
-
-        <div
-          style="
-            font-size:11px;
-            color:#9ca3af;
-            font-weight:700;
-            letter-spacing:1px;
-          "
-        >
-          IBAN
-        </div>
-
-        <div
-          style="
-            margin-top:5px;
-            font-size:17px;
-            font-weight:800;
-            color:#111827;
-            word-break:break-all;
-          "
-        >
-          ${safeIban}
-        </div>
-
-      </div>
-
-      <!-- BIC / SWIFT -->
-
-      <div style="margin-bottom:20px;">
-
-        <div
-          style="
-            font-size:11px;
-            color:#9ca3af;
-            font-weight:700;
-            letter-spacing:1px;
-          "
-        >
-          BIC / SWIFT
-        </div>
-
-        <div
-          style="
-            margin-top:5px;
-            font-size:16px;
-            font-weight:700;
-            color:#111827;
-          "
-        >
-          ${safeBic}
-        </div>
-
-      </div>
-
-      <!-- BANK -->
-
-      <div style="margin-bottom:20px;">
-
-        <div
-          style="
-            font-size:11px;
-            color:#9ca3af;
-            font-weight:700;
-            letter-spacing:1px;
-          "
-        >
-          BANK NAME
-        </div>
-
-        <div
-          style="
-            margin-top:5px;
-            font-size:15px;
-            font-weight:600;
-            color:#111827;
-          "
-        >
-          ${safeBankName}
-        </div>
-
-      </div>
-
-      <!-- COUNTRY -->
-
-      <div style="margin-bottom:20px;">
-
-        <div
-          style="
-            font-size:11px;
-            color:#9ca3af;
-            font-weight:700;
-            letter-spacing:1px;
-          "
-        >
-          BANK COUNTRY
-        </div>
-
-        <div
-          style="
-            margin-top:5px;
-            font-size:15px;
-            font-weight:600;
-            color:#111827;
-          "
-        >
-          ${safeBankCountry}
-        </div>
-
-      </div>
-
-      <!-- CURRENCY -->
-
-      <div style="margin-bottom:20px;">
-
-        <div
-          style="
-            font-size:11px;
-            color:#9ca3af;
-            font-weight:700;
-            letter-spacing:1px;
-          "
-        >
-          TRANSFER CURRENCY
-        </div>
-
-        <div
-          style="
-            margin-top:5px;
-            font-size:15px;
-            font-weight:700;
-            color:#111827;
-          "
-        >
-          ${safeCurrency}
-        </div>
-
-      </div>
-
-      <!-- AMOUNT -->
-
-      <div>
-
-        <div
-          style="
-            font-size:11px;
-            color:#9ca3af;
-            font-weight:700;
-            letter-spacing:1px;
-          "
-        >
-          AMOUNT
-        </div>
-
-        <div
-          style="
-            margin-top:5px;
-            font-size:18px;
-            font-weight:800;
-            color:#111827;
-          "
-        >
-          ${formattedAmount}
-        </div>
-
-      </div>
-
-    </div>
-
-  </div>
-
-  <!-- PAYMENT REFERENCE -->
-
-  <div
-    style="
-      background:#111827;
-      border-radius:14px;
-      padding:22px;
-      margin-bottom:20px;
-    "
-  >
-
-    <div
-      style="
-        font-size:11px;
-        color:#9ca3af;
-        font-weight:700;
-        letter-spacing:1px;
-      "
-    >
-      PAYMENT REFERENCE / DESCRIPTION
-    </div>
-
-    <div
-      style="
-        margin-top:8px;
-        font-size:23px;
-        font-weight:800;
-        color:#ffffff;
-        letter-spacing:1px;
-      "
-    >
-      ${safeReference}
-    </div>
-
-  </div>
-
-  <!-- IMPORTANT -->
-
-  <div
-    style="
-      background:#fff7ed;
-      border:1px solid #fed7aa;
-      border-radius:12px;
-      padding:17px;
-      margin-bottom:26px;
-    "
-  >
-
-    <div
-      style="
-        font-size:14px;
-        line-height:1.65;
-        color:#9a3412;
-      "
-    >
-      <strong>Important:</strong>
-      enter
-      <strong>${safeReference}</strong>
-      exactly in the reference, description or
-      message field of your bank transfer.
-      This allows us to match the payment to order
-      <strong>${safeOrderNumber}</strong>.
-    </div>
-
-  </div>
-
-  <!-- NEXT STEPS -->
-
-  <div
-    style="
-      border-top:1px solid #e5e7eb;
-      padding-top:24px;
-    "
-  >
-
-    <div
-      style="
-        font-size:15px;
-        font-weight:700;
-        color:#111827;
-        margin-bottom:8px;
-      "
-    >
-      What happens next?
-    </div>
-
-    <p
-      style="
-        margin:0;
-        color:#4b5563;
-        font-size:14px;
-        line-height:1.7;
-      "
-    >
-      Once we receive and verify your payment,
-      we'll send you a confirmation email and
-      begin preparing your order. That confirmation
-      will also include your estimated delivery time.
-    </p>
-
-  </div>
-
-</td>
-</tr>
-
-<!-- FOOTER -->
-
-<tr>
-<td
-  style="
-    border-top:1px solid #e5e7eb;
-    padding:24px 34px;
-    color:#9ca3af;
-    font-size:12px;
-    line-height:1.6;
-  "
->
-
-  <strong style="color:#6b7280;">
-    Lumina Phones
-  </strong>
-
-  <br />
-
-  Order ${safeOrderNumber}
-
-  <br />
-
-  This is an automated order and payment
-  instruction email.
-
-</td>
-</tr>
-
-</table>
-
-</td>
-</tr>
-</table>
-
-</body>
-</html>
-`;
-
-      /*
-       * ----------------------------------------------------
-       * SEND EMAIL WITH RESEND
-       * ----------------------------------------------------
-       */
-
-      const resendResponse =
-        await fetch(
-          "https://api.resend.com/emails",
-          {
-            method:
-              "POST",
-
-            headers: {
-              Authorization:
-                `Bearer ${resendApiKey}`,
-
-              "Content-Type":
-                "application/json",
-            },
-
-            body:
-              JSON.stringify({
-                from:
-                  `Lumina Phones <${fromEmail}>`,
-
-                to: [
-                  customerEmail,
-                ],
-
-                subject:
-                  `Payment instructions for ${orderNumber}`,
-
-                html:
-                  emailHtml,
-
-                text:
-                  emailText,
-              }),
-          }
-        );
-
-      let resendResult:
-        unknown =
+      let warning:
+        | string
+        | null =
         null;
 
-      try {
-        resendResult =
-          await resendResponse.json();
-      } catch {
-        resendResult =
-          null;
-      }
-
-      /*
-       * ----------------------------------------------------
-       * RESEND ERROR
-       * ----------------------------------------------------
-       */
-
       if (
-        !resendResponse.ok
+        resendApiKey &&
+        fromEmail
       ) {
-        console.error(
-          "Resend error:",
-          resendResult
-        );
-
-        /*
-         * The order has already been
-         * created.
-         *
-         * Do not delete it just because
-         * email delivery failed.
-         */
-
-        return jsonResponse({
-          success: true,
-
-          email_sent:
-            false,
-
-          order,
-
-          order_number:
+        try {
+          await sendOrderEmail({
+            resendApiKey,
+            fromEmail,
+            customerEmail,
+            customerName,
+            customerCountry,
+            customerStateRegion,
+            customerCity,
+            customerStreet,
+            customerHouseNumber,
+            customerAddressLine2,
+            customerPostalCode,
             orderNumber,
-
-          payment_reference:
-            paymentReference,
-
-          pricing: {
-            currency,
-            base_price:
-              basePrice,
-
-            variant_adjustment:
-              variantPriceAdjustment,
-
-            unit_price:
-              unitPrice,
-
+            productName,
+            storage,
+            color,
+            condition,
             quantity,
+            unitPrice,
+            totalAmount,
+            displayCurrency,
+            displayUnitPrice,
+            displayTotalAmount,
+            exchangeRate,
+            paymentReference,
+            bank,
+            language,
+          });
 
-            total_amount:
-              totalAmount,
-          },
+          emailSent =
+            true;
+        } catch (
+          emailError
+        ) {
+          console.error(
+            "Order email error:",
+            emailError
+          );
 
-          warning:
-            "Order created but payment email could not be sent.",
-        });
+          warning =
+            "Order created, but the confirmation email could not be sent.";
+        }
+      } else {
+        warning =
+          "Order created, but email is not configured.";
       }
 
-      /*
-       * ----------------------------------------------------
-       * SUCCESS
-       * ----------------------------------------------------
-       */
+      /* =====================================================
+         SUCCESS
+      ===================================================== */
 
       return jsonResponse({
-        success: true,
+        success:
+          true,
 
         email_sent:
-          true,
+          emailSent,
+
+        warning,
 
         order,
 
@@ -2131,13 +2011,8 @@ Lumina Phones
           paymentReference,
 
         pricing: {
-          currency,
-
-          base_price:
-            basePrice,
-
-          variant_adjustment:
-            variantPriceAdjustment,
+          currency:
+            SETTLEMENT_CURRENCY,
 
           unit_price:
             unitPrice,
@@ -2146,23 +2021,50 @@ Lumina Phones
 
           total_amount:
             totalAmount,
+
+          display_currency:
+            displayCurrency,
+
+          display_unit_price:
+            displayUnitPrice,
+
+          display_total_amount:
+            displayTotalAmount,
+
+          exchange_rate:
+            exchangeRate,
+        },
+
+        payment: {
+          method:
+            "bank_transfer",
+
+          status:
+            "awaiting_payment",
+
+          reference:
+            paymentReference,
+
+          bank,
         },
       });
-    } catch (error) {
+    } catch (
+      error
+    ) {
       console.error(
-        "create-order error:",
+        "create-order fatal error:",
         error
       );
 
       return jsonResponse(
         {
-          success: false,
+          success:
+            false,
 
           error:
-            error instanceof
-              Error
+            error instanceof Error
               ? error.message
-              : "Unexpected server error.",
+              : "Unexpected create-order error.",
         },
         500
       );

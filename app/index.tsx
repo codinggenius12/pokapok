@@ -1,73 +1,683 @@
 import { Link } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import PhoneVisual from "../src/components/phone/PhoneVisual";
+import CurrencySwitcher from "../src/components/ui/CurrencySwitcher";
 import { useCart } from "../src/context/CartContext";
+import { useCurrency } from "../src/context/CurrencyStore";
+import { useLanguage } from "../src/context/LanguageContext";
 import { phones } from "../src/data/phones";
+import {
+  getLowestPublicVariantRefurbishedGradePrice,
+  getProductSellConditions,
+  getPublicProducts,
+  getPublicProductVariants,
+  type PublicProduct,
+  type PublicProductVariant,
+  type PublicSellCondition,
+} from "../src/services/productService";
 import { colors } from "../src/theme/colors";
-import type { Phone } from "../src/types/phone";
-import { formatCurrency } from "../src/utils/formatCurrency";
 
-const categories = [
-  "All",
-  "iPhone",
-  "Samsung",
-  "New",
-  "Refurbished",
-  "Lease coming soon",
+/* =========================================================
+   TYPES
+========================================================= */
+
+type ConditionOption =
+  | "all"
+  | "new"
+  | "refurbished";
+
+/* =========================================================
+   FILTER DATA
+
+   We keep internal values language-independent.
+   Only the displayed labels are translated.
+========================================================= */
+
+const conditionOptions: ConditionOption[] = [
+  "all",
+  "new",
+  "refurbished",
 ];
 
-const budgetOptions = [
-  { label: "Any budget", value: 1000 },
-  { label: "Under €300", value: 300 },
-  { label: "Under €400", value: 400 },
-  { label: "Under €500", value: 500 },
-  { label: "Under €700", value: 700 },
-  { label: "€1000+", value: 1000 },
-];
+const fallbackBrandOptions = Array.from(
+  new Set(
+    phones
+      .map((phone) =>
+        phone.brand
+          .trim()
+          .toLowerCase()
+      )
+      .filter(Boolean)
+  )
+).sort();
 
-const refurbishedPriceMultiplier = 0.86;
+function formatBrandLabel(brand: string) {
+  if (!brand) {
+    return "";
+  }
 
-function getNewPrice(phone: Phone) {
-  if (phone.condition === "new") return phone.price;
-
-  return Math.round(phone.price / refurbishedPriceMultiplier);
+  return (
+    brand.charAt(0).toUpperCase() +
+    brand.slice(1).toLowerCase()
+  );
 }
 
-function getRefurbishedPrice(phone: Phone) {
-  if (phone.condition === "refurbished") return phone.price;
-
-  return Math.round(phone.price * refurbishedPriceMultiplier);
-}
-
-function getFromPrice(phone: Phone) {
-  return Math.min(getNewPrice(phone), getRefurbishedPrice(phone));
-}
+/* =========================================================
+   HOME
+========================================================= */
 
 export default function HomeScreen() {
   const { totalItems } = useCart();
 
-  const [search, setSearch] = useState("");
-  const [activeCategory, setActiveCategory] = useState("All");
-  const [showBudgetMenu, setShowBudgetMenu] = useState(false);
-  const [maxBudget, setMaxBudget] = useState(1000);
+  const {
+    language,
+    t,
+    setLanguage,
+  } = useLanguage();
 
-  const heroPhone =
-    phones.find((phone) => phone.slug === "iphone-13") ?? phones[0];
+  const {
+    formatPrice,
+  } = useCurrency(
+    language
+  );
+
+  const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+
+  const isMobile = width <= 767;
+
+  const [search, setSearch] =
+    useState("");
+
+  const [
+    brandOptions,
+    setBrandOptions,
+  ] = useState<string[]>(
+    fallbackBrandOptions
+  );
+
+  const [
+    liveProducts,
+    setLiveProducts,
+  ] = useState<
+    PublicProduct[]
+  >([]);
+
+  const [
+    variantsByProductId,
+    setVariantsByProductId,
+  ] = useState<
+    Record<
+      string,
+      PublicProductVariant[]
+    >
+  >({});
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadStorefrontData() {
+      try {
+        const products =
+          await getPublicProducts();
+
+        const variantEntries =
+          await Promise.all(
+            products.map(
+              async (product) => {
+                try {
+                  const variants =
+                    await getPublicProductVariants(
+                      product.id
+                    );
+
+                  return [
+                    product.id,
+                    variants,
+                  ] as const;
+                } catch (error) {
+                  console.warn(
+                    `Could not load homepage variants for ${product.name}:`,
+                    error
+                  );
+
+                  return [
+                    product.id,
+                    [],
+                  ] as const;
+                }
+              }
+            )
+          );
+
+        if (!active) {
+          return;
+        }
+
+        setLiveProducts(
+          products
+        );
+
+        setVariantsByProductId(
+          Object.fromEntries(
+            variantEntries
+          )
+        );
+
+        const liveBrands =
+          Array.from(
+            new Set(
+              products
+                .filter(
+                  (product) =>
+                    product.published &&
+                    Boolean(
+                      product.brand
+                    )
+                )
+                .map((product) =>
+                  product.brand
+                    .trim()
+                    .toLowerCase()
+                )
+                .filter(Boolean)
+            )
+          ).sort();
+
+        if (liveBrands.length > 0) {
+          setBrandOptions(
+            liveBrands
+          );
+        }
+      } catch (error) {
+        console.warn(
+          "Could not load homepage storefront data. Using local fallback data.",
+          error
+        );
+      }
+    }
+
+    void loadStorefrontData();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  function getHomepagePrice(
+    slug: string
+  ): number | null {
+    const liveProduct =
+      liveProducts.find(
+        (product) =>
+          product.slug === slug
+      );
+
+    if (!liveProduct) {
+      return null;
+    }
+
+    const variants =
+      variantsByProductId[
+        liveProduct.id
+      ] ?? [];
+
+    const prices =
+      variants
+        .filter(
+          (variant) =>
+            variant.available
+        )
+        .map((variant) => {
+          /*
+           * PRICING SOURCE OF TRUTH:
+           * Supabase product_variants only.
+           *
+           * No phones.ts price, no multiplier,
+           * and no product-level fallback.
+           */
+          const normalPrice =
+            variant.sale_price;
+
+          const promotionalPrice =
+            variant.promotional_price;
+
+          if (
+            normalPrice === null ||
+            !Number.isFinite(
+              normalPrice
+            ) ||
+            normalPrice <= 0
+          ) {
+            return null;
+          }
+
+          if (
+            promotionalPrice !==
+              null &&
+            Number.isFinite(
+              promotionalPrice
+            ) &&
+            promotionalPrice > 0 &&
+            promotionalPrice <
+              normalPrice
+          ) {
+            return promotionalPrice;
+          }
+
+          return normalPrice;
+        })
+        .filter(
+          (
+            price
+          ): price is number =>
+            price !== null
+        );
+
+    return prices.length > 0
+      ? Math.min(...prices)
+      : null;
+  }
+
+  function getHomepageRefurbishedPrice(
+    slug: string
+  ): number | null {
+    const liveProduct =
+      liveProducts.find(
+        (product) =>
+          product.slug === slug
+      );
+
+    if (!liveProduct) {
+      return null;
+    }
+
+    const variants =
+      variantsByProductId[
+        liveProduct.id
+      ] ?? [];
+
+    const prices =
+      variants
+        .filter(
+          (variant) =>
+            variant.available
+        )
+        .map(
+          (variant) =>
+            getLowestPublicVariantRefurbishedGradePrice(
+              variant
+            )
+        )
+        .filter(
+          (
+            price
+          ): price is number =>
+            price !== null
+        );
+
+    return prices.length > 0
+      ? Math.min(...prices)
+      : null;
+  }
+
+  function getLowestStorePrice({
+    brand,
+    condition,
+  }: {
+    brand?: string;
+    condition: PublicSellCondition;
+  }): number | null {
+    const normalizedBrand =
+      brand
+        ?.trim()
+        .toLowerCase();
+
+    const prices:
+      number[] = [];
+
+    for (
+      const product of
+      liveProducts
+    ) {
+      if (
+        !product.published ||
+        !product.available
+      ) {
+        continue;
+      }
+
+      if (
+        normalizedBrand &&
+        product.brand
+          .trim()
+          .toLowerCase() !==
+          normalizedBrand
+      ) {
+        continue;
+      }
+
+      const sellConditions =
+        getProductSellConditions(
+          product
+        );
+
+      if (
+        !sellConditions.includes(
+          condition
+        )
+      ) {
+        continue;
+      }
+
+      const variants =
+        variantsByProductId[
+          product.id
+        ] ?? [];
+
+      for (
+        const variant of
+        variants
+      ) {
+        if (!variant.available) {
+          continue;
+        }
+
+        if (
+          condition ===
+          "refurbished"
+        ) {
+          const price =
+            getLowestPublicVariantRefurbishedGradePrice(
+              variant
+            );
+
+          if (
+            price !== null &&
+            Number.isFinite(
+              price
+            ) &&
+            price > 0
+          ) {
+            prices.push(
+              price
+            );
+          }
+
+          continue;
+        }
+
+        const normalPrice =
+          variant.sale_price;
+
+        const promotionalPrice =
+          variant.promotional_price;
+
+        if (
+          normalPrice === null ||
+          !Number.isFinite(
+            normalPrice
+          ) ||
+          normalPrice <= 0
+        ) {
+          continue;
+        }
+
+        const activePrice =
+          promotionalPrice !==
+            null &&
+          Number.isFinite(
+            promotionalPrice
+          ) &&
+          promotionalPrice > 0 &&
+          promotionalPrice <
+            normalPrice
+            ? promotionalPrice
+            : normalPrice;
+
+        prices.push(
+          activePrice
+        );
+      }
+    }
+
+    return prices.length > 0
+      ? Math.min(...prices)
+      : null;
+  }
+
+  const lowestRefurbishedPrice =
+    getLowestStorePrice({
+      condition:
+        "refurbished",
+    });
+
+  const lowestNewIphonePrice =
+    getLowestStorePrice({
+      brand: "apple",
+      condition: "new",
+    });
+
+  const sortedFeaturedPhones =
+    [...phones].sort(
+      (a, b) =>
+        b.featured -
+        a.featured
+    );
+
+  const featuredPhone =
+    sortedFeaturedPhones.find(
+      (phone) =>
+        getHomepagePrice(
+          phone.slug
+        ) !== null
+    ) ??
+    sortedFeaturedPhones[0] ??
+    phones[0];
+
+  const featuredRefurbishedIphone =
+    sortedFeaturedPhones.find(
+      (phone) =>
+        phone.brand ===
+          "apple" &&
+        getHomepageRefurbishedPrice(
+          phone.slug
+        ) !== null
+    ) ??
+    sortedFeaturedPhones.find(
+      (phone) =>
+        phone.brand ===
+        "apple"
+    ) ??
+    featuredPhone;
+
+  const featuredNewIphone =
+    sortedFeaturedPhones.find(
+      (phone) =>
+        phone.brand ===
+          "apple" &&
+        getHomepagePrice(
+          phone.slug
+        ) !== null
+    ) ??
+    sortedFeaturedPhones.find(
+      (phone) =>
+        phone.brand ===
+        "apple"
+    ) ??
+    featuredPhone;
+
+  const featuredSamsung =
+    sortedFeaturedPhones.find(
+      (phone) =>
+        phone.brand ===
+          "samsung" &&
+        getHomepagePrice(
+          phone.slug
+        ) !== null
+    ) ??
+    sortedFeaturedPhones.find(
+      (phone) =>
+        phone.brand ===
+        "samsung"
+    ) ??
+    featuredPhone;
+
+  const featuredRefurbishedPrice =
+    featuredRefurbishedIphone
+      ? getHomepageRefurbishedPrice(
+          featuredRefurbishedIphone.slug
+        )
+      : null;
+
+  const featuredSamsungPrice =
+    featuredSamsung
+      ? getHomepagePrice(
+          featuredSamsung.slug
+        )
+      : null;
+
+  const promoCardWidth =
+    isMobile
+      ? Math.min(
+          Math.max(
+            width - 52,
+            290
+          ),
+          360
+        )
+      : 370;
+
+  const promoCopy =
+    language === "pt"
+      ? {
+          refurbishedKicker:
+            "RECONDICIONADOS",
+          refurbishedTitle:
+            "Smartphones desde",
+          refurbishedBody:
+            "Equipamentos verificados, testados e prontos para uma segunda vida.",
+          refurbishedAction:
+            "Ver recondicionados",
+
+          iphoneKicker:
+            "IPHONE",
+          iphoneTitle:
+            "iPhone desde",
+          iphoneBody:
+            "Descubra iPhones novos com preços atualizados diretamente da POKAPOK.",
+          iphoneAction:
+            "Ver iPhones",
+
+          samsungKicker:
+            "SAMSUNG",
+          samsungTitle:
+            "Galaxy em destaque.",
+          samsungBody:
+            "Descubra os Samsung selecionados pela POKAPOK.",
+          samsungAction:
+            "Ver Samsung",
+        }
+      : {
+          refurbishedKicker:
+            "REFURBISHED",
+          refurbishedTitle:
+            "Smartphones from",
+          refurbishedBody:
+            "Verified, tested devices ready for a second life.",
+          refurbishedAction:
+            "Shop refurbished",
+
+          iphoneKicker:
+            "IPHONE",
+          iphoneTitle:
+            "iPhone from",
+          iphoneBody:
+            "Discover new iPhones with live prices from POKAPOK.",
+          iphoneAction:
+            "Shop iPhones",
+
+          samsungKicker:
+            "SAMSUNG",
+          samsungTitle:
+            "Featured Galaxy phones.",
+          samsungBody:
+            "Discover Samsung devices selected by POKAPOK.",
+          samsungAction:
+            "View Samsung",
+        };
+
+  const mobileProductCardWidth =
+    Math.min(
+      Math.max(
+        width * 0.72,
+        260
+      ),
+      310
+    );
+
+  /* =======================================================
+     CONDITION LABEL
+  ======================================================= */
+
+  function getConditionLabel(
+    condition: ConditionOption
+  ) {
+    if (language === "pt") {
+      switch (condition) {
+        case "all":
+          return "Todas as condições";
+
+        case "new":
+          return "Novo";
+
+        case "refurbished":
+          return "Recondicionado";
+
+        default:
+          return condition;
+      }
+    }
+
+    switch (condition) {
+      case "all":
+        return "All conditions";
+
+      case "new":
+        return "New";
+
+      case "refurbished":
+        return "Refurbished";
+
+      default:
+        return condition;
+    }
+  }
+
+  /* =======================================================
+     FILTER PRODUCTS
+  ======================================================= */
 
   const filteredPhones = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q =
+      search.trim().toLowerCase();
 
     return [...phones]
       .filter((phone) => {
-        if (!q) return true;
+        if (!q) {
+          return true;
+        }
 
         const searchableText = [
           phone.name,
@@ -76,334 +686,1646 @@ export default function HomeScreen() {
           phone.specs.screen,
           phone.specs.chip,
           phone.specs.camera,
-          phone.storage.map((item) => item.label).join(" "),
-          phone.colors.map((item) => item.name).join(" "),
+          phone.storage
+            .map((item) => item.label)
+            .join(" "),
+          phone.colors
+            .map((item) => item.name)
+            .join(" "),
         ]
           .join(" ")
           .toLowerCase();
 
         return searchableText.includes(q);
       })
-      .filter((phone) => {
-        if (activeCategory === "All") return true;
-        if (activeCategory === "iPhone") return phone.brand === "apple";
-        if (activeCategory === "Samsung") return phone.brand === "samsung";
-        if (activeCategory === "New") return phone.condition === "new";
-        if (activeCategory === "Refurbished") {
-          return phone.condition === "refurbished";
-        }
-        if (activeCategory === "Lease coming soon") return true;
-
-        return true;
-      })
-      .filter((phone) => {
-        if (maxBudget >= 1000) return true;
-
-        return getFromPrice(phone) <= maxBudget;
-      })
-      .sort((a, b) => b.featured - a.featured)
+      .sort(
+        (a, b) =>
+          b.featured - a.featured
+      )
       .slice(0, 8);
-  }, [search, activeCategory, maxBudget]);
+  }, [search]);
+
+  /* =======================================================
+     RENDER
+  ======================================================= */
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <View style={styles.utilityBar}>
-        <Text style={styles.utilityText}>
-          Premium smartphones · New & refurbished
-        </Text>
-        <Text style={styles.utilityText}>Português / English</Text>
-      </View>
-
-      <View style={styles.topbar}>
-        <Link href={"/" as any} asChild>
-          <Pressable style={styles.brandRow}>
-            <View style={styles.mark}>
-              <View style={styles.markInner} />
-            </View>
-
-            <View>
-              <Text style={styles.logo}>LUMINA</Text>
-              <Text style={styles.logoSub}>SMARTPHONES</Text>
-            </View>
-          </Pressable>
-        </Link>
-
-        <View style={styles.searchBox}>
-          <Text style={styles.searchIcon}>⌕</Text>
-          <TextInput
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search iPhone, Samsung, under €400..."
-            placeholderTextColor={colors.ink40}
-            style={styles.searchInput}
-          />
-        </View>
-
-        <View style={styles.topActions}>
-          <Link href={"/catalog" as any} asChild>
-            <Pressable>
-              <Text style={styles.helpText}>Catalog</Text>
-            </Pressable>
-          </Link>
-
-          <Link href={"/cart" as any} asChild>
-            <Pressable style={styles.cartButton}>
-              <Text style={styles.cartButtonText}>Cart</Text>
-              {totalItems > 0 && (
-                <Text style={styles.cartBadge}>{totalItems}</Text>
-              )}
-            </Pressable>
-          </Link>
-        </View>
-      </View>
-
+    <View
+      style={[
+        styles.safeScreen,
+        {
+          paddingTop: insets.top,
+        },
+      ]}
+    >
       <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.categoryNav}
+        style={styles.screen}
+        contentContainerStyle={[
+          styles.content,
+          isMobile &&
+            styles.contentMobile,
+        ]}
+        keyboardShouldPersistTaps="handled"
       >
-        {categories.map((category) => (
-          <Pressable
-            key={category}
-            onPress={() => {
-              setActiveCategory(category);
-              setShowBudgetMenu(false);
-            }}
-            style={[
-              styles.categoryPill,
-              activeCategory === category && styles.categoryPillActive,
-            ]}
+      {/* ===================================================
+          HEADER
+      =================================================== */}
+
+      {isMobile ? (
+        <View style={styles.mobileHeader}>
+          <View style={styles.mobileHeaderTop}>
+            <Link href={"/" as any} asChild>
+              <Pressable
+                style={StyleSheet.flatten([
+                  styles.brandRow,
+                  styles.brandRowMobile,
+                ])}
+              >
+                <View
+                  style={[
+                    styles.mark,
+                    styles.markMobile,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.markInner,
+                      styles.markInnerMobile,
+                    ]}
+                  />
+                </View>
+
+                <View>
+                  <Text
+                    style={[
+                      styles.logo,
+                      styles.logoMobile,
+                    ]}
+                  >
+                    POKAPOK
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.logoSub,
+                      styles.logoSubMobile,
+                    ]}
+                  >
+                    SMARTPHONES
+                  </Text>
+                </View>
+              </Pressable>
+            </Link>
+
+            <View
+              style={
+                styles.mobileHeaderActions
+              }
+            >
+              <View style={styles.mobileLanguageSwitcher}>
+                <Text style={styles.mobileLanguageIcon}>
+                  🌐
+                </Text>
+
+                <Pressable
+                  onPress={() => {
+                    void setLanguage("en");
+                  }}
+                  style={[
+                    styles.mobileLanguageOption,
+                    language === "en" &&
+                      styles.mobileLanguageOptionActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.mobileLanguageOptionText,
+                      language === "en" &&
+                        styles.mobileLanguageOptionTextActive,
+                    ]}
+                  >
+                    EN
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => {
+                    void setLanguage("pt");
+                  }}
+                  style={[
+                    styles.mobileLanguageOption,
+                    language === "pt" &&
+                      styles.mobileLanguageOptionActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.mobileLanguageOptionText,
+                      language === "pt" &&
+                        styles.mobileLanguageOptionTextActive,
+                    ]}
+                  >
+                    PT
+                  </Text>
+                </Pressable>
+              </View>
+
+              <Link
+                href={"/cart" as any}
+                asChild
+              >
+                <Pressable
+                  style={
+                    styles.mobileCartButton
+                  }
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={
+                      styles.mobileCartText
+                    }
+                  >
+                    {t.navigation.cart}
+                  </Text>
+
+                  {totalItems > 0 && (
+                    <Text
+                      style={
+                        styles.mobileCartBadge
+                      }
+                    >
+                      {totalItems}
+                    </Text>
+                  )}
+                </Pressable>
+              </Link>
+            </View>
+          </View>
+
+          <View
+            style={
+              styles.mobileHeaderBottom
+            }
           >
-            <Text
+            <View
               style={[
-                styles.categoryText,
-                activeCategory === category && styles.categoryTextActive,
+                styles.searchBox,
+                styles.searchBoxMobile,
               ]}
             >
-              {category}
-            </Text>
-          </Pressable>
-        ))}
-
-        <Pressable
-          onPress={() => setShowBudgetMenu((current) => !current)}
-          style={[
-            styles.categoryPill,
-            maxBudget < 1000 && styles.categoryPillActive,
-          ]}
-        >
-          <Text
-            style={[
-              styles.categoryText,
-              maxBudget < 1000 && styles.categoryTextActive,
-            ]}
-          >
-            {maxBudget >= 1000 ? "Budget" : `Under €${maxBudget}`}
-          </Text>
-        </Pressable>
-      </ScrollView>
-
-      {showBudgetMenu && (
-        <View style={styles.budgetMenu}>
-          {budgetOptions.map((option) => {
-            const active = maxBudget === option.value;
-
-            return (
-              <Pressable
-                key={option.label}
-                onPress={() => {
-                  setMaxBudget(option.value);
-                  setShowBudgetMenu(false);
-                }}
+              <Text
                 style={[
-                  styles.budgetOption,
-                  active && styles.budgetOptionActive,
+                  styles.searchIcon,
+                  styles.searchIconMobile,
+                ]}
+              >
+                ⌕
+              </Text>
+
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder={
+                  t.home.searchPlaceholder
+                }
+                placeholderTextColor={
+                  colors.ink40
+                }
+                style={[
+                  styles.searchInput,
+                  styles.searchInputMobile,
+                ]}
+              />
+            </View>
+
+            <CurrencySwitcher
+              compact
+            />
+
+          </View>
+        </View>
+      ) : (
+        <>
+          <View style={styles.utilityBar}>
+            <Text
+              style={styles.utilityText}
+            >
+              {t.home.utility}
+            </Text>
+
+            <View
+              style={
+                styles.utilityControls
+              }
+            >
+              <CurrencySwitcher
+                compact
+              />
+
+              <View
+                style={
+                  styles.languageSelector
+                }
+              >
+                <Pressable
+                  onPress={() => {
+                    void setLanguage("pt");
+                  }}
+                style={[
+                  styles.languageButton,
+                  language === "pt" &&
+                    styles.languageButtonActive,
                 ]}
               >
                 <Text
                   style={[
-                    styles.budgetOptionText,
-                    active && styles.budgetOptionTextActive,
+                    styles.languageButtonText,
+                    language === "pt" &&
+                      styles.languageButtonTextActive,
                   ]}
                 >
-                  {option.label}
+                  PT
                 </Text>
               </Pressable>
-            );
-          })}
-        </View>
+
+              <Pressable
+                onPress={() => {
+                  void setLanguage("en");
+                }}
+                style={[
+                  styles.languageButton,
+                  language === "en" &&
+                    styles.languageButtonActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.languageButtonText,
+                    language === "en" &&
+                      styles.languageButtonTextActive,
+                  ]}
+                >
+                  EN
+                </Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.topbar}>
+            <Link href={"/" as any} asChild>
+              <Pressable
+                style={styles.brandRow}
+              >
+                <View style={styles.mark}>
+                  <View
+                    style={styles.markInner}
+                  />
+                </View>
+
+                <View>
+                  <Text style={styles.logo}>
+                    POKAPOK
+                  </Text>
+
+                  <Text
+                    style={styles.logoSub}
+                  >
+                    SMARTPHONES
+                  </Text>
+                </View>
+              </Pressable>
+            </Link>
+
+            <View style={styles.searchBox}>
+              <Text
+                style={styles.searchIcon}
+              >
+                ⌕
+              </Text>
+
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder={
+                  t.home.searchPlaceholder
+                }
+                placeholderTextColor={
+                  colors.ink40
+                }
+                style={styles.searchInput}
+              />
+            </View>
+
+            <View style={styles.topActions}>
+              <Link
+                href={"/catalog" as any}
+                asChild
+              >
+                <Pressable>
+                  <Text
+                    style={styles.helpText}
+                  >
+                    {t.home.catalog}
+                  </Text>
+                </Pressable>
+              </Link>
+
+              <Link
+                href={"/cart" as any}
+                asChild
+              >
+                <Pressable
+                  style={styles.cartButton}
+                >
+                  <Text
+                    style={
+                      styles.cartButtonText
+                    }
+                  >
+                    {t.navigation.cart}
+                  </Text>
+
+                  {totalItems > 0 && (
+                    <Text
+                      style={
+                        styles.cartBadge
+                      }
+                    >
+                      {totalItems}
+                    </Text>
+                  )}
+                </Pressable>
+              </Link>
+            </View>
+          </View>
+        </>
       )}
 
-      <View style={styles.hero}>
-        <View style={styles.heroCopy}>
-          <Text style={styles.kicker}>REFURBISHED IPHONES · FROM €329</Text>
+      {/* ===================================================
+          BRAND + CONDITION FILTERS — SINGLE ROW
+      =================================================== */}
 
-          <Text style={styles.title}>Premium phones for less.</Text>
-
-          <Text style={styles.text}>
-            Start with affordable refurbished iPhones, then choose colour,
-            storage, protection and payment options on the product page.
+      <View
+        style={[
+          styles.combinedFilterSection,
+          isMobile &&
+            styles.combinedFilterSectionMobile,
+        ]}
+      >
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={
+            false
+          }
+          contentContainerStyle={
+            styles.combinedFilterRail
+          }
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text
+            style={
+              styles.combinedFilterLabel
+            }
+          >
+            {language === "pt"
+              ? "MARCA"
+              : "BRAND"}
           </Text>
 
-          <View style={styles.actions}>
+          <Link
+            href={
+              "/catalog?brand=all" as any
+            }
+            asChild
+          >
             <Pressable
-              style={styles.primaryButton}
-              onPress={() => {
-                setActiveCategory("iPhone");
-                setMaxBudget(500);
-                setShowBudgetMenu(false);
-              }}
+              style={StyleSheet.flatten([
+                styles.brandNavigationPill,
+                styles.brandNavigationPillAll,
+              ])}
             >
-              <Text style={styles.primaryButtonText}>Shop iPhones</Text>
+              <Text
+                style={[
+                  styles.brandNavigationText,
+                  styles.brandNavigationTextAll,
+                ]}
+              >
+                {language === "pt"
+                  ? "Todas"
+                  : "All"}
+              </Text>
             </Pressable>
+          </Link>
 
-            <Pressable
-              style={styles.secondaryButton}
-              onPress={() => {
-                setActiveCategory("Refurbished");
-                setMaxBudget(1000);
-                setShowBudgetMenu(false);
-              }}
+          {brandOptions.map(
+            (brand) => (
+              <Link
+                key={`brand-${brand}`}
+                href={
+                  `/catalog?brand=${encodeURIComponent(
+                    brand
+                  )}` as any
+                }
+                asChild
+              >
+                <Pressable
+                  style={
+                    styles.brandNavigationPill
+                  }
+                >
+                  <Text
+                    style={
+                      styles.brandNavigationText
+                    }
+                  >
+                    {formatBrandLabel(
+                      brand
+                    )}
+                  </Text>
+                </Pressable>
+              </Link>
+            )
+          )}
+
+          <View
+            style={
+              styles.combinedFilterDivider
+            }
+          />
+
+          <Text
+            style={
+              styles.combinedFilterLabel
+            }
+          >
+            {language === "pt"
+              ? "CONDIÇÃO"
+              : "CONDITION"}
+          </Text>
+
+          {conditionOptions.map(
+            (condition) => {
+              const isAll =
+                condition === "all";
+
+              return (
+                <Link
+                  key={`condition-${condition}`}
+                  href={
+                    `/catalog?condition=${condition}` as any
+                  }
+                  asChild
+                >
+                  <Pressable
+                    style={
+                      isAll
+                        ? StyleSheet.flatten([
+                            styles.brandNavigationPill,
+                            styles.brandNavigationPillAll,
+                          ])
+                        : styles.brandNavigationPill
+                    }
+                  >
+                    <Text
+                      style={
+                        isAll
+                          ? [
+                              styles.brandNavigationText,
+                              styles.brandNavigationTextAll,
+                            ]
+                          : styles.brandNavigationText
+                      }
+                    >
+                      {isAll
+                        ? language === "pt"
+                          ? "Todas"
+                          : "All"
+                        : getConditionLabel(
+                            condition
+                          )}
+                    </Text>
+                  </Pressable>
+                </Link>
+              );
+            }
+          )}
+        </ScrollView>
+      </View>
+
+      {/* ===================================================
+          PROMOTION BANNERS
+      =================================================== */}
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={
+          false
+        }
+        decelerationRate="fast"
+        snapToInterval={
+          isMobile
+            ? promoCardWidth + 12
+            : undefined
+        }
+        snapToAlignment="start"
+        contentContainerStyle={[
+          styles.promoCarouselContent,
+          !isMobile &&
+            styles.promoCarouselContentDesktop,
+        ]}
+        style={
+          styles.promoCarousel
+        }
+      >
+        {/* REFURBISHED IPHONES */}
+
+        <Link
+          href={
+            "/catalog?condition=refurbished" as any
+          }
+          asChild
+        >
+          <Pressable
+            style={StyleSheet.flatten([
+              styles.promoCard,
+              styles.promoCardPurple,
+              {
+                width:
+                  promoCardWidth,
+              },
+            ])}
+          >
+            <View
+              style={
+                styles.promoCopy
+              }
             >
-              <Text style={styles.secondaryButtonText}>Refurbished deals</Text>
-            </Pressable>
-          </View>
+              <View>
+                <Text
+                  style={
+                    styles.promoKicker
+                  }
+                >
+                  {
+                    promoCopy.refurbishedKicker
+                  }
+                </Text>
+
+                <Text
+                  style={
+                    styles.promoTitle
+                  }
+                  numberOfLines={2}
+                >
+                  {
+                    promoCopy.refurbishedTitle
+                  }
+                </Text>
+
+                <Text
+                  style={
+                    styles.promoBody
+                  }
+                  numberOfLines={2}
+                >
+                  {
+                    promoCopy.refurbishedBody
+                  }
+                </Text>
+              </View>
+
+              <View
+                style={
+                  styles.promoBottom
+                }
+              >
+                <View>
+                  <Text
+                    style={
+                      styles.promoPriceLabel
+                    }
+                  >
+                    {t.common.from}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.promoPrice
+                    }
+                  >
+                    {lowestRefurbishedPrice !==
+                    null
+                      ? formatPrice(
+                          lowestRefurbishedPrice
+                        )
+                      : "—"}
+                  </Text>
+                </View>
+
+                <View
+                  style={
+                    styles.promoActionDark
+                  }
+                >
+                  <Text
+                    style={
+                      styles.promoActionDarkText
+                    }
+                  >
+                    {
+                      promoCopy.refurbishedAction
+                    }
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View
+              style={
+                styles.promoPhoneWrap
+              }
+              pointerEvents="none"
+            >
+              <PhoneVisual
+                phone={
+                  featuredRefurbishedIphone
+                }
+                variant="card"
+              />
+            </View>
+          </Pressable>
+        </Link>
+
+        {/* NEW IPHONES */}
+
+        <Link
+          href={
+            "/catalog?brand=apple&condition=new" as any
+          }
+          asChild
+        >
+          <Pressable
+            style={StyleSheet.flatten([
+              styles.promoCard,
+              styles.promoCardDark,
+              {
+                width:
+                  promoCardWidth,
+              },
+            ])}
+          >
+            <View
+              style={
+                styles.promoCopy
+              }
+            >
+              <View>
+                <Text
+                  style={[
+                    styles.promoKicker,
+                    styles.promoTextLight,
+                  ]}
+                >
+                  {
+                    promoCopy.iphoneKicker
+                  }
+                </Text>
+
+                <Text
+                  style={[
+                    styles.promoTitle,
+                    styles.promoTextLight,
+                  ]}
+                  numberOfLines={2}
+                >
+                  {
+                    promoCopy.iphoneTitle
+                  }
+                </Text>
+
+                <Text
+                  style={
+                    styles.promoBodyLight
+                  }
+                  numberOfLines={2}
+                >
+                  {
+                    promoCopy.iphoneBody
+                  }
+                </Text>
+              </View>
+
+              <View
+                style={
+                  styles.promoBottom
+                }
+              >
+                <View>
+                  <Text
+                    style={
+                      styles.promoPriceLabelLight
+                    }
+                  >
+                    {t.common.from}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.promoPriceLight
+                    }
+                  >
+                    {lowestNewIphonePrice !==
+                    null
+                      ? formatPrice(
+                          lowestNewIphonePrice
+                        )
+                      : "—"}
+                  </Text>
+                </View>
+
+                <View
+                  style={
+                    styles.promoActionLight
+                  }
+                >
+                  <Text
+                    style={
+                      styles.promoActionLightText
+                    }
+                  >
+                    {
+                      promoCopy.iphoneAction
+                    }
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View
+              style={
+                styles.promoPhoneWrap
+              }
+              pointerEvents="none"
+            >
+              <PhoneVisual
+                phone={
+                  featuredNewIphone
+                }
+                variant="card"
+              />
+            </View>
+          </Pressable>
+        </Link>
+
+        {/* SAMSUNG */}
+
+        <Link
+          href={
+            "/catalog?brand=samsung" as any
+          }
+          asChild
+        >
+          <Pressable
+            style={StyleSheet.flatten([
+              styles.promoCard,
+              styles.promoCardLime,
+              styles.promoCardSamsung,
+              {
+                width:
+                  promoCardWidth,
+              },
+            ])}
+          >
+            <View
+              style={[
+                styles.promoCopy,
+                styles.promoCopySamsung,
+              ]}
+            >
+              <View>
+                <Text
+                  style={
+                    styles.promoKicker
+                  }
+                >
+                  {
+                    promoCopy.samsungKicker
+                  }
+                </Text>
+
+                <Text
+                  style={[
+                    styles.promoTitle,
+                    styles.promoTitleSamsung,
+                  ]}
+                  numberOfLines={2}
+                >
+                  {
+                    promoCopy.samsungTitle
+                  }
+                </Text>
+
+                <Text
+                  style={[
+                    styles.promoBody,
+                    styles.promoBodySamsung,
+                  ]}
+                  numberOfLines={2}
+                >
+                  {
+                    promoCopy.samsungBody
+                  }
+                </Text>
+              </View>
+
+              <View
+                style={[
+                  styles.promoBottom,
+                  styles.promoBottomSamsung,
+                ]}
+              >
+                <View>
+                  <Text
+                    style={
+                      styles.promoPriceLabel
+                    }
+                  >
+                    {t.common.from}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.promoPrice
+                    }
+                  >
+                    {featuredSamsungPrice !==
+                    null
+                      ? formatPrice(
+                          featuredSamsungPrice
+                        )
+                      : "—"}
+                  </Text>
+                </View>
+
+                <View
+                  style={
+                    styles.promoActionDark
+                  }
+                >
+                  <Text
+                    style={
+                      styles.promoActionDarkText
+                    }
+                  >
+                    {
+                      promoCopy.samsungAction
+                    }
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View
+              style={[
+                styles.promoPhoneWrap,
+                styles.promoPhoneWrapSamsung,
+              ]}
+              pointerEvents="none"
+            >
+              <View
+                style={
+                  styles.samsungVisualHalo
+                }
+              />
+
+              <PhoneVisual
+                phone={
+                  featuredSamsung
+                }
+                variant="card"
+              />
+            </View>
+          </Pressable>
+        </Link>
+      </ScrollView>
+
+      {!isMobile ? (
+        <>
+      {/* ===================================================
+          TRUST STRIP
+      =================================================== */}
+
+      <View
+        style={[
+          styles.trustStrip,
+          isMobile &&
+            styles.trustStripMobile,
+        ]}
+      >
+        <View
+          style={[
+            styles.trustItem,
+            isMobile &&
+              styles.trustItemMobile,
+          ]}
+        >
+          <Text
+            style={styles.trustIcon}
+          >
+            ✓
+          </Text>
+
+          <Text
+            style={styles.trustText}
+          >
+            {t.home.trust.verified}
+          </Text>
         </View>
 
-        <View style={styles.heroVisual}>
-          <View style={styles.heroGlowOne} />
-          <View style={styles.heroGlowTwo} />
+        <View
+          style={[
+            styles.trustItem,
+            isMobile &&
+              styles.trustItemMobile,
+          ]}
+        >
+          <Text
+            style={styles.trustIcon}
+          >
+            ★
+          </Text>
 
-          <View style={styles.heroImageWrap}>
-            <PhoneVisual phone={heroPhone} colorName="Blue" variant="hero" />
-          </View>
+          <Text
+            style={styles.trustText}
+          >
+            {t.home.trust.warranty}
+          </Text>
+        </View>
 
-          <View style={styles.floatCard}>
-            <Text style={styles.floatLabel}>From</Text>
-            <Text style={styles.floatPrice}>
-              {formatCurrency(getFromPrice(heroPhone))}
-            </Text>
-            <Text style={styles.floatSubText}>
-              Refurbished iPhone · checked device
-            </Text>
-          </View>
+        <View
+          style={[
+            styles.trustItem,
+            isMobile &&
+              styles.trustItemMobile,
+          ]}
+        >
+          <Text
+            style={styles.trustIcon}
+          >
+            ↺
+          </Text>
+
+          <Text
+            style={styles.trustText}
+          >
+            {
+              t.home.trust
+                .newOrRefurbished
+            }
+          </Text>
+        </View>
+
+        <View
+          style={[
+            styles.trustItem,
+            isMobile &&
+              styles.trustItemMobile,
+          ]}
+        >
+          <Text
+            style={styles.trustIcon}
+          >
+            ▣
+          </Text>
+
+          <Text
+            style={styles.trustText}
+          >
+            {t.home.trust.delivery}
+          </Text>
         </View>
       </View>
 
-      <View style={styles.trustStrip}>
-        <View style={styles.trustItem}>
-          <Text style={styles.trustIcon}>✓</Text>
-          <Text style={styles.trustText}>Verified devices</Text>
-        </View>
+      {/* ===================================================
+          STATEMENT
+      =================================================== */}
 
-        <View style={styles.trustItem}>
-          <Text style={styles.trustIcon}>★</Text>
-          <Text style={styles.trustText}>2-year warranty</Text>
-        </View>
+      <View
+        style={[
+          styles.statement,
+          isMobile &&
+            styles.statementMobile,
+        ]}
+      >
+        <Text
+          style={
+            [
+              styles.statementTitle,
+              isMobile &&
+                styles.statementTitleMobile,
+            ]
+          }
+        >
+          {t.home.statement.title}
+        </Text>
 
-        <View style={styles.trustItem}>
-          <Text style={styles.trustIcon}>↺</Text>
-          <Text style={styles.trustText}>New or refurbished</Text>
-        </View>
-
-        <View style={styles.trustItem}>
-          <Text style={styles.trustIcon}>▣</Text>
-          <Text style={styles.trustText}>Pickup or delivery</Text>
-        </View>
-      </View>
-
-      <View style={styles.statement}>
-        <Text style={styles.statementTitle}>Simple choice. Less noise.</Text>
-        <Text style={styles.statementText}>
-          See the starting price first. Configure only when you open the phone.
+        <Text
+          style={
+            [
+              styles.statementText,
+              isMobile &&
+                styles.statementTextMobile,
+            ]
+          }
+        >
+          {
+            t.home.statement
+              .description
+          }
         </Text>
       </View>
 
-      <View style={styles.sectionHeader}>
-        <View>
-          <Text style={styles.sectionEyebrow}>CURATED SELECTION</Text>
-          <Text style={styles.sectionTitle}>
-            {activeCategory === "All" ? "Featured phones" : activeCategory}
-          </Text>
-          <Text style={styles.sectionSubText}>
-            {maxBudget >= 1000
-              ? "Showing lowest available prices"
-              : `Showing phones up to €${maxBudget}`}
-          </Text>
-        </View>
+        </>
+      ) : null}
 
-        <Link href={"/catalog" as any} asChild>
-          <Pressable>
-            <Text style={styles.sectionLink}>See full catalog</Text>
-          </Pressable>
-        </Link>
-      </View>
+      {/* ===================================================
+          PRODUCT SECTION HEADER
+      =================================================== */}
 
-      {filteredPhones.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyTitle}>No phones found.</Text>
-          <Text style={styles.emptyText}>
-            Try increasing your budget or searching for iPhone, Samsung, new, or
-            refurbished.
+      {isMobile ? (
+        <View
+          style={
+            styles.sectionHeaderMobile
+          }
+        >
+          <View
+            style={
+              styles.mobileSectionTopRow
+            }
+          >
+            <Text
+              style={
+                styles.sectionEyebrow
+              }
+            >
+              {t.home.selection.kicker}
+            </Text>
+
+            <Link
+              href={"/catalog" as any}
+              asChild
+            >
+              <Pressable
+                style={
+                  styles.mobileCatalogButton
+                }
+              >
+                <Text
+                  style={
+                    styles.mobileCatalogButtonText
+                  }
+                >
+                  {language === "pt"
+                    ? "Ver catálogo"
+                    : "View catalog"}
+                </Text>
+
+                <Text
+                  style={
+                    styles.mobileCatalogArrow
+                  }
+                >
+                  →
+                </Text>
+              </Pressable>
+            </Link>
+          </View>
+
+          <Text
+            style={[
+              styles.sectionTitle,
+              styles.sectionTitleMobile,
+            ]}
+          >
+            {t.home.selection.featured}
+          </Text>
+
+          <Text
+            style={
+              styles.sectionSubTextMobile
+            }
+          >
+            {t.home.selection.lowestPrices}
           </Text>
         </View>
       ) : (
-        <View style={styles.grid}>
-          {filteredPhones.map((phone) => (
-            <View key={phone.id} style={styles.card}>
-              <View style={styles.cardTop}>
-                <Text style={styles.cardBrand}>
-                  {phone.brand.toUpperCase()}
-                </Text>
+        <View
+          style={
+            styles.sectionHeader
+          }
+        >
+          <View>
+            <Text
+              style={
+                styles.sectionEyebrow
+              }
+            >
+              {t.home.selection.kicker}
+            </Text>
 
-                <View style={styles.availabilityPills}>
-                  <Text style={styles.availabilityPill}>New</Text>
-                  <Text style={styles.availabilityPill}>Refurb.</Text>
-                </View>
-              </View>
+            <Text
+              style={
+                styles.sectionTitle
+              }
+            >
+              {t.home.selection.featured}
+            </Text>
 
-              <View style={styles.phoneStage}>
-                <PhoneVisual phone={phone} variant="card" />
-              </View>
+            <Text
+              style={
+                styles.sectionSubText
+              }
+            >
+              {t.home.selection.lowestPrices}
+            </Text>
+          </View>
 
-              <Text style={styles.cardName}>{phone.name}</Text>
-
-              <Text style={styles.cardSpec}>
-                {phone.specs.screen} · {phone.specs.chip}
+          <Link
+            href={"/catalog" as any}
+            asChild
+          >
+            <Pressable>
+              <Text
+                style={
+                  styles.sectionLink
+                }
+              >
+                {
+                  t.home.selection
+                    .fullCatalog
+                }
               </Text>
-
-              <View style={styles.cardBottom}>
-                <View style={styles.priceArea}>
-                  <Text style={styles.fromLabel}>From</Text>
-
-                  <Text style={styles.mainFromPrice}>
-                    {formatCurrency(getFromPrice(phone))}
-                  </Text>
-
-                  <Text style={styles.priceSubText}>
-                    New or refurbished available
-                  </Text>
-                </View>
-
-                <Link href={`/product/${phone.slug}` as any} asChild>
-                  <Pressable style={styles.viewButton}>
-                    <Text style={styles.viewButtonText}>View</Text>
-                  </Pressable>
-                </Link>
-              </View>
-            </View>
-          ))}
+            </Pressable>
+          </Link>
         </View>
       )}
-    </ScrollView>
+
+      {/* ===================================================
+          EMPTY STATE
+      =================================================== */}
+
+      {filteredPhones.length === 0 ? (
+        <View
+          style={[
+            styles.emptyState,
+            isMobile &&
+              styles.emptyStateMobile,
+          ]}
+        >
+          <Text
+            style={styles.emptyTitle}
+          >
+            {t.home.empty.title}
+          </Text>
+
+          <Text
+            style={styles.emptyText}
+          >
+            {
+              t.home.empty
+                .description
+            }
+          </Text>
+        </View>
+      ) : isMobile ? (
+        <>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={
+              false
+            }
+            decelerationRate="fast"
+            snapToInterval={
+              mobileProductCardWidth +
+              12
+            }
+            snapToAlignment="start"
+            contentContainerStyle={
+              styles.mobileProductRail
+            }
+            style={
+              styles.mobileProductScroll
+            }
+          >
+            {filteredPhones.map(
+              (phone) => (
+                <Link
+                  key={phone.id}
+                  href={
+                    `/product/${phone.slug}` as any
+                  }
+                  asChild
+                >
+                  <Pressable
+                    style={StyleSheet.flatten([
+                      styles.card,
+                      styles.cardMobileRail,
+                      {
+                        width:
+                          mobileProductCardWidth,
+                      },
+                    ])}
+                  >
+                    <View
+                      style={
+                        styles.cardTop
+                      }
+                    >
+                      <Text
+                        style={
+                          styles.cardBrand
+                        }
+                      >
+                        {phone.brand.toUpperCase()}
+                      </Text>
+
+                      <View
+                        style={
+                          styles.availabilityPills
+                        }
+                      >
+                        <Text
+                          style={
+                            styles.availabilityPill
+                          }
+                        >
+                          {phone.condition ===
+                          "new"
+                            ? t.product.new
+                            : t.product
+                                .refurbished}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View
+                      style={[
+                        styles.phoneStage,
+                        styles.phoneStageRail,
+                      ]}
+                    >
+                      <PhoneVisual
+                        phone={phone}
+                        variant="card"
+                      />
+                    </View>
+
+                    <Text
+                      numberOfLines={1}
+                      style={
+                        styles.cardNameRail
+                      }
+                    >
+                      {phone.name}
+                    </Text>
+
+                    <Text
+                      numberOfLines={1}
+                      style={
+                        styles.cardSpecRail
+                      }
+                    >
+                      {phone.specs.screen} ·{" "}
+                      {phone.specs.chip}
+                    </Text>
+
+                    <View
+                      style={
+                        styles.cardBottomRail
+                      }
+                    >
+                      <View
+                        style={
+                          styles.priceArea
+                        }
+                      >
+                        <Text
+                          style={
+                            styles.fromLabel
+                          }
+                        >
+                          {t.common.from}
+                        </Text>
+
+                        <Text
+                          style={
+                            styles.mainFromPriceRail
+                          }
+                        >
+                          {(() => {
+                            const price =
+                              getHomepagePrice(
+                                phone.slug
+                              );
+
+                            return price !==
+                              null
+                              ? formatPrice(
+                                  price
+                                )
+                              : "—";
+                          })()}
+                        </Text>
+                      </View>
+
+                      <View
+                        style={
+                          styles.mobileOpenPill
+                        }
+                      >
+                        <Text
+                          style={
+                            styles.mobileOpenPillText
+                          }
+                        >
+                          {t.catalog.view}
+                        </Text>
+                      </View>
+                    </View>
+                  </Pressable>
+                </Link>
+              )
+            )}
+          </ScrollView>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={
+              false
+            }
+            contentContainerStyle={
+              styles.mobileTrustRail
+            }
+          >
+            <View
+              style={
+                styles.mobileTrustChip
+              }
+            >
+              <Text
+                style={
+                  styles.mobileTrustChipIcon
+                }
+              >
+                ✓
+              </Text>
+
+              <Text
+                style={
+                  styles.mobileTrustChipText
+                }
+              >
+                {t.home.trust.verified}
+              </Text>
+            </View>
+
+            <View
+              style={
+                styles.mobileTrustChip
+              }
+            >
+              <Text
+                style={
+                  styles.mobileTrustChipIcon
+                }
+              >
+                ★
+              </Text>
+
+              <Text
+                style={
+                  styles.mobileTrustChipText
+                }
+              >
+                {t.home.trust.warranty}
+              </Text>
+            </View>
+
+            <View
+              style={
+                styles.mobileTrustChip
+              }
+            >
+              <Text
+                style={
+                  styles.mobileTrustChipIcon
+                }
+              >
+                ↺
+              </Text>
+
+              <Text
+                style={
+                  styles.mobileTrustChipText
+                }
+              >
+                {
+                  t.home.trust
+                    .newOrRefurbished
+                }
+              </Text>
+            </View>
+
+            <View
+              style={
+                styles.mobileTrustChip
+              }
+            >
+              <Text
+                style={
+                  styles.mobileTrustChipIcon
+                }
+              >
+                ▣
+              </Text>
+
+              <Text
+                style={
+                  styles.mobileTrustChipText
+                }
+              >
+                {t.home.trust.delivery}
+              </Text>
+            </View>
+          </ScrollView>
+        </>
+      ) : (
+        <View
+          style={
+            styles.grid
+          }
+        >
+          {filteredPhones.map(
+            (phone) => (
+              <View
+                key={phone.id}
+                style={
+                  styles.card
+                }
+              >
+                <View
+                  style={styles.cardTop}
+                >
+                  <Text
+                    style={
+                      styles.cardBrand
+                    }
+                  >
+                    {phone.brand.toUpperCase()}
+                  </Text>
+
+                  <View
+                    style={
+                      styles.availabilityPills
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.availabilityPill
+                      }
+                    >
+                      {t.product.new}
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.availabilityPill
+                      }
+                    >
+                      {
+                        t.product
+                          .refurbished
+                      }
+                    </Text>
+                  </View>
+                </View>
+
+                <View
+                  style={
+                    styles.phoneStage
+                  }
+                >
+                  <PhoneVisual
+                    phone={phone}
+                    variant="card"
+                  />
+                </View>
+
+                <Text
+                  style={styles.cardName}
+                >
+                  {phone.name}
+                </Text>
+
+                <Text
+                  style={styles.cardSpec}
+                >
+                  {phone.specs.screen} ·{" "}
+                  {phone.specs.chip}
+                </Text>
+
+                <View
+                  style={
+                    styles.cardBottom
+                  }
+                >
+                  <View
+                    style={
+                      styles.priceArea
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.fromLabel
+                      }
+                    >
+                      {t.common.from}
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.mainFromPrice
+                      }
+                    >
+                      {(() => {
+                        const price =
+                          getHomepagePrice(
+                            phone.slug
+                          );
+
+                        return price !==
+                          null
+                          ? formatPrice(
+                              price
+                            )
+                          : "—";
+                      })()}
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.priceSubText
+                      }
+                    >
+                      {
+                        t.home.card
+                          .newOrRefurbished
+                      }
+                    </Text>
+                  </View>
+
+                  <Link
+                    href={
+                      `/product/${phone.slug}` as any
+                    }
+                    asChild
+                  >
+                    <Pressable
+                      style={
+                        styles.viewButton
+                      }
+                    >
+                      <Text
+                        style={
+                          styles.viewButtonText
+                        }
+                      >
+                        {t.catalog.view}
+                      </Text>
+                    </Pressable>
+                  </Link>
+                </View>
+              </View>
+            )
+          )}
+        </View>
+      )}
+      </ScrollView>
+    </View>
   );
 }
+
+/* =========================================================
+   STYLES
+========================================================= */
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
   },
+
   content: {
     width: "100%",
     maxWidth: 1280,
@@ -417,11 +2339,53 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
   },
+
   utilityText: {
     color: colors.ink40,
     fontSize: 12,
     fontWeight: "800",
+  },
+
+  utilityControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  languageSelector: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.ink12,
+    borderRadius: 999,
+    padding: 3,
+  },
+
+  languageButton: {
+    minWidth: 38,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  languageButtonActive: {
+    backgroundColor: colors.ink,
+  },
+
+  languageButtonText: {
+    color: colors.ink40,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+
+  languageButtonTextActive: {
+    color: colors.white,
   },
 
   topbar: {
@@ -432,11 +2396,13 @@ const styles = StyleSheet.create({
     gap: 18,
     backgroundColor: colors.bg,
   },
+
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 11,
   },
+
   mark: {
     width: 34,
     height: 34,
@@ -445,18 +2411,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   markInner: {
     width: 14,
     height: 14,
     borderRadius: 5,
     backgroundColor: colors.blue,
   },
+
   logo: {
     fontSize: 22,
     fontWeight: "900",
-    color: colors.ink,
+    color: colors.blue,
     letterSpacing: -1.2,
   },
+
   logoSub: {
     fontSize: 9,
     fontWeight: "900",
@@ -477,26 +2446,31 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
+
   searchIcon: {
     color: colors.ink,
     fontSize: 22,
     fontWeight: "900",
   },
+
   searchInput: {
     flex: 1,
     color: colors.ink,
     fontSize: 15,
     outlineStyle: "none" as any,
   },
+
   topActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
   },
+
   helpText: {
     color: colors.ink,
     fontWeight: "900",
   },
+
   cartButton: {
     backgroundColor: colors.white,
     borderWidth: 1,
@@ -508,10 +2482,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+
   cartButtonText: {
     color: colors.ink,
     fontWeight: "900",
   },
+
   cartBadge: {
     minWidth: 20,
     height: 20,
@@ -525,11 +2501,113 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
 
+  shopByBrandSection: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 14,
+  },
+
+  shopByBrandSectionMobile: {
+    paddingHorizontal: 16,
+    paddingTop: 2,
+    paddingBottom: 12,
+  },
+
+  combinedFilterSection: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 14,
+  },
+
+  combinedFilterSectionMobile: {
+    paddingHorizontal: 16,
+    paddingTop: 2,
+    paddingBottom: 12,
+  },
+
+  combinedFilterRail: {
+    alignItems: "center",
+    gap: 8,
+    paddingRight: 8,
+  },
+
+  combinedFilterLabel: {
+    color: colors.ink40,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+    paddingHorizontal: 2,
+  },
+
+  combinedFilterDivider: {
+    width: 1,
+    height: 26,
+    backgroundColor:
+      colors.ink12,
+    marginHorizontal: 4,
+  },
+
+  shopByBrandHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 9,
+  },
+
+  shopByBrandLabel: {
+    color: colors.ink40,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: "900",
+    letterSpacing: 1.6,
+  },
+
+  shopByBrandViewAll: {
+    color: colors.blue,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "900",
+  },
+
+  brandNavigation: {
+    gap: 8,
+    paddingRight: 8,
+  },
+
+  brandNavigationPill: {
+    minHeight: 40,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.ink12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  brandNavigationPillAll: {
+    backgroundColor: colors.ink,
+    borderColor: colors.ink,
+  },
+
+  brandNavigationText: {
+    color: colors.ink70,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+
+  brandNavigationTextAll: {
+    color: colors.white,
+  },
+
   categoryNav: {
     paddingHorizontal: 24,
     paddingBottom: 16,
     gap: 10,
   },
+
   categoryPill: {
     backgroundColor: colors.white,
     borderWidth: 1,
@@ -538,15 +2616,18 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 999,
   },
+
   categoryPillActive: {
     backgroundColor: colors.ink,
     borderColor: colors.ink,
   },
+
   categoryText: {
     color: colors.ink70,
     fontWeight: "900",
     fontSize: 13,
   },
+
   categoryTextActive: {
     color: colors.white,
   },
@@ -563,6 +2644,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
   },
+
   budgetOption: {
     backgroundColor: colors.bg,
     borderWidth: 1,
@@ -571,15 +2653,18 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 999,
   },
+
   budgetOptionActive: {
     backgroundColor: colors.ink,
     borderColor: colors.ink,
   },
+
   budgetOptionText: {
     color: colors.ink70,
     fontSize: 13,
     fontWeight: "900",
   },
+
   budgetOptionTextActive: {
     color: colors.white,
   },
@@ -593,12 +2678,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     overflow: "hidden",
   },
+
   heroCopy: {
     flex: 1.1,
     justifyContent: "center",
     minWidth: 320,
     zIndex: 2,
   },
+
   kicker: {
     color: colors.ink,
     fontSize: 12,
@@ -606,6 +2693,7 @@ const styles = StyleSheet.create({
     letterSpacing: 2.2,
     marginBottom: 16,
   },
+
   title: {
     color: colors.ink,
     fontSize: 72,
@@ -614,6 +2702,7 @@ const styles = StyleSheet.create({
     letterSpacing: -3.5,
     maxWidth: 760,
   },
+
   text: {
     color: colors.ink,
     opacity: 0.78,
@@ -622,29 +2711,35 @@ const styles = StyleSheet.create({
     maxWidth: 620,
     marginTop: 18,
   },
+
   actions: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
     marginTop: 28,
   },
+
   primaryButton: {
     backgroundColor: colors.ink,
     paddingHorizontal: 24,
     paddingVertical: 16,
     borderRadius: 16,
   },
+
   primaryButtonText: {
     color: colors.white,
     fontWeight: "900",
     fontSize: 15,
   },
+
   secondaryButton: {
-    backgroundColor: "rgba(255,255,255,0.55)",
+    backgroundColor:
+      "rgba(255,255,255,0.55)",
     paddingHorizontal: 24,
     paddingVertical: 16,
     borderRadius: 16,
   },
+
   secondaryButtonText: {
     color: colors.ink,
     fontWeight: "900",
@@ -658,30 +2753,36 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     position: "relative",
   },
+
   heroGlowOne: {
     position: "absolute",
     width: 380,
     height: 380,
     borderRadius: 190,
-    backgroundColor: "rgba(234,255,157,0.55)",
+    backgroundColor:
+      "rgba(234,255,157,0.55)",
     top: -80,
     right: 30,
   },
+
   heroGlowTwo: {
     position: "absolute",
     width: 300,
     height: 300,
     borderRadius: 150,
-    backgroundColor: "rgba(255,255,255,0.35)",
+    backgroundColor:
+      "rgba(255,255,255,0.35)",
     bottom: -60,
     left: 20,
   },
+
   heroImageWrap: {
     alignItems: "center",
     justifyContent: "center",
     zIndex: 2,
     transform: [{ rotate: "3deg" }],
   },
+
   floatCard: {
     position: "absolute",
     bottom: 54,
@@ -693,33 +2794,256 @@ const styles = StyleSheet.create({
     shadowColor: "#000",
     shadowOpacity: 0.22,
     shadowRadius: 22,
-    shadowOffset: { width: 0, height: 14 },
+    shadowOffset: {
+      width: 0,
+      height: 14,
+    },
     zIndex: 4,
     maxWidth: 240,
   },
+
   floatLabel: {
-    color: "rgba(255,255,255,0.55)",
+    color:
+      "rgba(255,255,255,0.55)",
     fontSize: 11,
     fontWeight: "900",
     textTransform: "uppercase",
   },
+
   floatPrice: {
     color: colors.white,
     fontSize: 22,
     fontWeight: "900",
     marginTop: 2,
   },
+
   floatSubText: {
-    color: "rgba(255,255,255,0.55)",
+    color:
+      "rgba(255,255,255,0.55)",
     fontSize: 11,
     fontWeight: "800",
     marginTop: 3,
     lineHeight: 15,
   },
 
+  promoCarousel: {
+    marginBottom: 0,
+  },
+
+  promoCarouselContent: {
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 26,
+    gap: 12,
+  },
+
+  promoCarouselContentDesktop: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 30,
+  },
+
+  promoCard: {
+    height: 238,
+    borderRadius: 28,
+    overflow: "hidden",
+    position: "relative",
+    padding: 20,
+  },
+
+  promoCardPurple: {
+    backgroundColor: "#C8A8FF",
+  },
+
+  promoCardDark: {
+    backgroundColor: colors.ink,
+  },
+
+  promoCardLime: {
+    backgroundColor: "#DFF58A",
+  },
+
+  promoCardSamsung: {
+    paddingRight: 18,
+  },
+
+  promoCopySamsung: {
+    width: "62%",
+  },
+
+  promoTitleSamsung: {
+    fontSize: 27,
+    lineHeight: 28,
+    letterSpacing: -1.1,
+    maxWidth: 190,
+  },
+
+  promoBodySamsung: {
+    maxWidth: 175,
+  },
+
+  promoBottomSamsung: {
+    paddingRight: 2,
+  },
+
+  promoCopy: {
+    width: "68%",
+    height: "100%",
+    zIndex: 2,
+    justifyContent: "space-between",
+  },
+
+  promoKicker: {
+    color: colors.ink,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: "900",
+    letterSpacing: 1.7,
+  },
+
+  promoTitle: {
+    color: colors.ink,
+    fontSize: 30,
+    lineHeight: 30,
+    fontWeight: "900",
+    letterSpacing: -1.5,
+    marginTop: 7,
+  },
+
+  promoBody: {
+    color: colors.ink,
+    opacity: 0.7,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 8,
+  },
+
+  promoTextLight: {
+    color: colors.white,
+  },
+
+  promoBodyLight: {
+    color: "rgba(255,255,255,0.68)",
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 8,
+  },
+
+  promoBottom: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: "auto",
+  },
+
+  promoPriceLabel: {
+    color: colors.ink,
+    opacity: 0.55,
+    fontSize: 9,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+
+  promoPrice: {
+    color: colors.ink,
+    fontSize: 21,
+    fontWeight: "900",
+    letterSpacing: -0.8,
+    marginTop: 1,
+  },
+
+  promoPriceLabelLight: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 9,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+
+  promoPriceLight: {
+    color: colors.white,
+    fontSize: 21,
+    fontWeight: "900",
+    letterSpacing: -0.8,
+    marginTop: 1,
+  },
+
+  promoActionDark: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: colors.ink,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  promoActionDarkText: {
+    color: colors.white,
+    fontSize: 10,
+    fontWeight: "900",
+  },
+
+  promoActionLight: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: colors.white,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  promoActionLightText: {
+    color: colors.ink,
+    fontSize: 10,
+    fontWeight: "900",
+  },
+
+  promoPhoneWrap: {
+    position: "absolute",
+    right: -42,
+    bottom: -68,
+    width: 190,
+    height: 250,
+    alignItems: "center",
+    justifyContent: "center",
+    transform: [
+      {
+        rotate: "4deg",
+      },
+      {
+        scale: 0.78,
+      },
+    ],
+    opacity: 0.98,
+  },
+
+  promoPhoneWrapSamsung: {
+    right: -48,
+    bottom: -70,
+    width: 210,
+    height: 270,
+    transform: [
+      {
+        rotate: "2deg",
+      },
+      {
+        scale: 0.92,
+      },
+    ],
+  },
+
+  samsungVisualHalo: {
+    position: "absolute",
+    width: 190,
+    height: 190,
+    borderRadius: 999,
+    backgroundColor:
+      "rgba(255,255,255,0.24)",
+  },
+
   trustStrip: {
     marginHorizontal: 24,
-    marginTop: -28,
+    marginTop: 12,
     marginBottom: 46,
     backgroundColor: colors.white,
     borderRadius: 20,
@@ -733,8 +3057,12 @@ const styles = StyleSheet.create({
     shadowColor: "#000",
     shadowOpacity: 0.08,
     shadowRadius: 24,
-    shadowOffset: { width: 0, height: 14 },
+    shadowOffset: {
+      width: 0,
+      height: 14,
+    },
   },
+
   trustItem: {
     flexGrow: 1,
     flexBasis: 220,
@@ -744,6 +3072,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
+
   trustIcon: {
     width: 30,
     height: 30,
@@ -755,6 +3084,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     overflow: "hidden",
   },
+
   trustText: {
     color: colors.ink,
     fontWeight: "900",
@@ -765,6 +3095,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 48,
   },
+
   statementTitle: {
     color: colors.ink,
     fontSize: 48,
@@ -774,6 +3105,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     maxWidth: 900,
   },
+
   statementText: {
     color: colors.ink70,
     fontSize: 18,
@@ -788,6 +3120,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     justifyContent: "space-between",
   },
+
   sectionEyebrow: {
     color: colors.blue,
     fontSize: 11,
@@ -795,18 +3128,21 @@ const styles = StyleSheet.create({
     letterSpacing: 1.8,
     marginBottom: 6,
   },
+
   sectionTitle: {
     fontSize: 34,
     fontWeight: "900",
     color: colors.ink,
     letterSpacing: -1.3,
   },
+
   sectionSubText: {
     color: colors.ink40,
     fontSize: 13,
     fontWeight: "800",
     marginTop: 4,
   },
+
   sectionLink: {
     color: colors.blue,
     fontWeight: "900",
@@ -820,14 +3156,130 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 26,
   },
+
   emptyTitle: {
     color: colors.ink,
     fontSize: 22,
     fontWeight: "900",
   },
+
   emptyText: {
     color: colors.ink70,
     marginTop: 6,
+  },
+
+  mobileProductScroll: {
+    marginTop: 0,
+    marginBottom: 2,
+  },
+
+  mobileProductRail: {
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    gap: 12,
+  },
+
+  cardMobileRail: {
+    flexGrow: 0,
+    flexBasis: "auto",
+    maxWidth: undefined,
+    minHeight: 0,
+    height: 332,
+    borderRadius: 24,
+    padding: 14,
+  },
+
+  phoneStageRail: {
+    height: 160,
+    marginBottom: 6,
+  },
+
+  cardNameRail: {
+    color: colors.ink,
+    fontSize: 19,
+    lineHeight: 22,
+    fontWeight: "900",
+    letterSpacing: -0.6,
+    marginTop: 2,
+  },
+
+  cardSpecRail: {
+    color: colors.ink40,
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 4,
+  },
+
+  cardBottomRail: {
+    marginTop: "auto",
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.ink06,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+
+  mainFromPriceRail: {
+    color: colors.blue,
+    fontSize: 22,
+    lineHeight: 25,
+    fontWeight: "900",
+    letterSpacing: -0.8,
+    marginTop: 1,
+  },
+
+  mobileOpenPill: {
+    minHeight: 38,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: colors.ink,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  mobileOpenPillText: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+
+  mobileTrustRail: {
+    paddingHorizontal: 16,
+    paddingTop: 2,
+    paddingBottom: 22,
+    gap: 8,
+  },
+
+  mobileTrustChip: {
+    minHeight: 38,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.ink12,
+    backgroundColor: colors.white,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+
+  mobileTrustChipIcon: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+
+  mobileTrustChipText: {
+    color: colors.ink70,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+
+  emptyStateMobile: {
+    marginHorizontal: 16,
+    borderRadius: 20,
+    padding: 20,
   },
 
   grid: {
@@ -836,6 +3288,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 18,
   },
+
   card: {
     backgroundColor: colors.white,
     borderRadius: 30,
@@ -849,24 +3302,31 @@ const styles = StyleSheet.create({
     shadowColor: "#000",
     shadowOpacity: 0.045,
     shadowRadius: 18,
-    shadowOffset: { width: 0, height: 12 },
+    shadowOffset: {
+      width: 0,
+      height: 12,
+    },
   },
+
   cardTop: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 8,
   },
+
   cardBrand: {
     fontSize: 11,
     fontWeight: "900",
     color: colors.ink40,
     letterSpacing: 2.2,
   },
+
   availabilityPills: {
     flexDirection: "row",
     gap: 5,
   },
+
   availabilityPill: {
     color: "#233300",
     backgroundColor: colors.limeLt,
@@ -878,12 +3338,14 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     textTransform: "uppercase",
   },
+
   phoneStage: {
     height: 220,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 12,
   },
+
   cardName: {
     fontSize: 21,
     fontWeight: "900",
@@ -891,12 +3353,14 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     letterSpacing: -0.7,
   },
+
   cardSpec: {
     fontSize: 13,
     color: colors.ink40,
     minHeight: 38,
     lineHeight: 18,
   },
+
   cardBottom: {
     marginTop: "auto",
     paddingTop: 16,
@@ -907,9 +3371,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 14,
   },
+
   priceArea: {
     flex: 1,
   },
+
   fromLabel: {
     color: colors.ink40,
     fontSize: 10,
@@ -917,6 +3383,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.7,
   },
+
   mainFromPrice: {
     color: colors.blue,
     fontSize: 27,
@@ -924,6 +3391,7 @@ const styles = StyleSheet.create({
     letterSpacing: -1,
     marginTop: 1,
   },
+
   priceSubText: {
     color: colors.ink40,
     fontSize: 11,
@@ -931,6 +3399,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
     lineHeight: 15,
   },
+
   viewButton: {
     backgroundColor: colors.ink,
     paddingHorizontal: 20,
@@ -941,9 +3410,400 @@ const styles = StyleSheet.create({
     minHeight: 48,
     minWidth: 88,
   },
+
   viewButtonText: {
     color: colors.white,
     fontWeight: "900",
     fontSize: 13,
   },
+
+  /* =======================================================
+     MOBILE
+  ======================================================= */
+
+  safeScreen: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
+
+  contentMobile: {
+    maxWidth: undefined,
+    paddingBottom: 36,
+  },
+
+  mobileHeader: {
+    backgroundColor: colors.bg,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 12,
+    gap: 12,
+  },
+
+  mobileHeaderTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+
+  mobileHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  brandRowMobile: {
+    flexShrink: 1,
+    gap: 9,
+  },
+
+  markMobile: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+  },
+
+  markInnerMobile: {
+    width: 15,
+    height: 15,
+    borderRadius: 5,
+  },
+
+  logoMobile: {
+    fontSize: 20,
+    letterSpacing: -1,
+  },
+
+  logoSubMobile: {
+    fontSize: 7.5,
+    letterSpacing: 1.8,
+    marginTop: -2,
+  },
+
+  mobileLanguageSwitcher: {
+    height: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.ink12,
+  },
+
+  mobileLanguageIcon: {
+    color: colors.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    marginLeft: 5,
+    marginRight: 3,
+  },
+
+  mobileLanguageOption: {
+    height: 30,
+    minWidth: 31,
+    paddingHorizontal: 7,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  mobileLanguageOptionActive: {
+    backgroundColor: colors.ink,
+  },
+
+  mobileLanguageOptionText: {
+    color: colors.ink40,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+
+  mobileLanguageOptionTextActive: {
+    color: colors.white,
+  },
+
+  mobileCartButton: {
+    minHeight: 40,
+    maxWidth: 96,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.ink12,
+  },
+
+  mobileCartText: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+
+  mobileCartBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.blue,
+    color: colors.white,
+    textAlign: "center",
+    lineHeight: 18,
+    fontSize: 10,
+    fontWeight: "900",
+    overflow: "hidden",
+  },
+
+  mobileHeaderBottom: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  searchBoxMobile: {
+    flex: 1,
+    width: "100%",
+    minHeight: 46,
+    height: 46,
+    paddingHorizontal: 14,
+  },
+
+  searchIconMobile: {
+    fontSize: 19,
+  },
+
+  searchInputMobile: {
+    fontSize: 14,
+    minWidth: 0,
+  },
+
+  categoryNavMobile: {
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    gap: 8,
+  },
+
+  budgetMenuMobile: {
+    marginHorizontal: 16,
+    marginBottom: 14,
+    borderRadius: 18,
+  },
+
+  heroMobile: {
+    minHeight: 0,
+    paddingHorizontal: 20,
+    paddingTop: 34,
+    paddingBottom: 24,
+    flexDirection: "column",
+  },
+
+  heroCopyMobile: {
+    flex: 0,
+    minWidth: 0,
+    width: "100%",
+    justifyContent: "flex-start",
+  },
+
+  kickerMobile: {
+    maxWidth: "100%",
+    fontSize: 11,
+    lineHeight: 16,
+    letterSpacing: 1.8,
+    marginBottom: 12,
+  },
+
+  titleMobile: {
+    maxWidth: "100%",
+    fontSize: 48,
+    lineHeight: 46,
+    letterSpacing: -2.2,
+  },
+
+  titleNarrowMobile: {
+    fontSize: 43,
+    lineHeight: 42,
+    letterSpacing: -1.9,
+  },
+
+  textMobile: {
+    maxWidth: "100%",
+    marginTop: 18,
+    fontSize: 18,
+    lineHeight: 27,
+  },
+
+  actionsMobile: {
+    width: "100%",
+    flexDirection: "column",
+    gap: 10,
+    marginTop: 24,
+  },
+
+  heroButtonMobile: {
+    width: "100%",
+    minHeight: 54,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+    paddingVertical: 15,
+    borderRadius: 17,
+  },
+
+  heroVisualMobile: {
+    flex: 0,
+    width: "100%",
+    minWidth: 0,
+    height: 300,
+    marginTop: 8,
+  },
+
+  heroGlowOneMobile: {
+    width: 255,
+    height: 255,
+    borderRadius: 128,
+    top: 6,
+    right: -76,
+  },
+
+  heroGlowTwoMobile: {
+    width: 210,
+    height: 210,
+    borderRadius: 105,
+    bottom: -44,
+    left: -58,
+  },
+
+  heroImageWrapMobile: {
+    transform: [
+      { scale: 0.72 },
+      { rotate: "3deg" },
+    ],
+  },
+
+  floatCardMobile: {
+    bottom: 22,
+    right: 4,
+    maxWidth: 170,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+
+  trustStripMobile: {
+    marginHorizontal: 16,
+    marginTop: -8,
+    marginBottom: 30,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 22,
+    flexDirection: "column",
+    flexWrap: "nowrap",
+    gap: 2,
+  },
+
+  trustItemMobile: {
+    width: "100%",
+    flexGrow: 0,
+    flexBasis: "auto",
+    paddingHorizontal: 6,
+    paddingVertical: 9,
+  },
+
+  statementMobile: {
+    paddingHorizontal: 18,
+    marginBottom: 34,
+  },
+
+  statementTitleMobile: {
+    fontSize: 32,
+    lineHeight: 36,
+    letterSpacing: -1.2,
+    maxWidth: 520,
+  },
+
+  statementTextMobile: {
+    fontSize: 16,
+    lineHeight: 24,
+    maxWidth: 520,
+  },
+
+  sectionHeaderMobile: {
+    paddingHorizontal: 16,
+    marginTop: 0,
+    marginBottom: 12,
+  },
+
+  mobileSectionTopRow: {
+    minHeight: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 6,
+  },
+
+  mobileCatalogButton: {
+    minHeight: 36,
+    paddingHorizontal: 13,
+    borderRadius: 999,
+    backgroundColor: colors.ink,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+
+  mobileCatalogButtonText: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+
+  mobileCatalogArrow: {
+    color: colors.white,
+    fontSize: 14,
+    lineHeight: 16,
+    fontWeight: "900",
+  },
+
+  sectionTitleMobile: {
+    fontSize: 24,
+    lineHeight: 27,
+    letterSpacing: -0.8,
+  },
+
+  sectionSubTextMobile: {
+    color: colors.ink40,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+
+  gridMobile: {
+    paddingHorizontal: 16,
+    gap: 14,
+  },
+
+  cardMobile: {
+    flexGrow: 0,
+    flexBasis: "auto",
+    width: "100%",
+    maxWidth: undefined,
+    minHeight: 0,
+    borderRadius: 24,
+    padding: 16,
+  },
+
+  phoneStageMobile: {
+    height: 205,
+  },
+
+  cardBottomMobile: {
+    flexWrap: "wrap",
+    alignItems: "center",
+  },
+
 });
