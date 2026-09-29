@@ -78,14 +78,6 @@ type BankDetails = {
 
 /* =========================================================
    CURRENCY
-
-   Product prices remain authoritative in EUR.
-
-   The Cape Verde escudo is pegged to the euro at:
-   1 EUR = 110.265 CVE.
-
-   CVE is a DISPLAY currency in the current checkout.
-   Bank transfers are settled in EUR.
 ========================================================= */
 
 const EUR_TO_CVE =
@@ -232,9 +224,7 @@ function normalizeDisplayCurrency(
       value
     ).toUpperCase();
 
-  if (
-    !normalized
-  ) {
+  if (!normalized) {
     return "CVE";
   }
 
@@ -259,10 +249,6 @@ function convertEurForDisplay(
     displayCurrency ===
     "CVE"
   ) {
-    /*
-     * Match the storefront:
-     * display CVE as whole escudos.
-     */
     return Math.round(
       eurAmount *
       EUR_TO_CVE
@@ -389,6 +375,162 @@ function escapeHtml(
 }
 
 /* =========================================================
+   ADDRESS HELPERS
+========================================================= */
+
+function buildTextAddress({
+  street,
+  houseNumber,
+  addressLine2,
+  postalCode,
+  city,
+  stateRegion,
+  country,
+}: {
+  street: string;
+  houseNumber: string;
+  addressLine2: string;
+  postalCode: string;
+  city: string;
+  stateRegion: string;
+  country: string;
+}) {
+  const lines:
+    string[] = [];
+
+  const streetLine =
+    [
+      street,
+      houseNumber,
+    ]
+      .filter(Boolean)
+      .join(", ");
+
+  if (streetLine) {
+    lines.push(
+      streetLine
+    );
+  }
+
+  if (addressLine2) {
+    lines.push(
+      addressLine2
+    );
+  }
+
+  const cityLine =
+    [
+      postalCode,
+      city,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+  if (cityLine) {
+    lines.push(
+      cityLine
+    );
+  }
+
+  if (stateRegion) {
+    lines.push(
+      stateRegion
+    );
+  }
+
+  if (country) {
+    lines.push(
+      country
+    );
+  }
+
+  return lines.join(
+    "\n"
+  );
+}
+
+function buildHtmlAddress({
+  street,
+  houseNumber,
+  addressLine2,
+  postalCode,
+  city,
+  stateRegion,
+  country,
+}: {
+  street: string;
+  houseNumber: string;
+  addressLine2: string;
+  postalCode: string;
+  city: string;
+  stateRegion: string;
+  country: string;
+}) {
+  const lines:
+    string[] = [];
+
+  const streetLine =
+    [
+      street,
+      houseNumber,
+    ]
+      .filter(Boolean)
+      .join(", ");
+
+  if (streetLine) {
+    lines.push(
+      escapeHtml(
+        streetLine
+      )
+    );
+  }
+
+  if (addressLine2) {
+    lines.push(
+      escapeHtml(
+        addressLine2
+      )
+    );
+  }
+
+  const cityLine =
+    [
+      postalCode,
+      city,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+  if (cityLine) {
+    lines.push(
+      escapeHtml(
+        cityLine
+      )
+    );
+  }
+
+  if (stateRegion) {
+    lines.push(
+      escapeHtml(
+        stateRegion
+      )
+    );
+  }
+
+  if (country) {
+    lines.push(
+      escapeHtml(
+        country
+      )
+    );
+  }
+
+  return lines.join(
+    "<br>"
+  );
+}
+
+/* =========================================================
    CONDITION HELPERS
 ========================================================= */
 
@@ -416,21 +558,6 @@ function productCanBeSoldRefurbished(
 
 /* =========================================================
    AUTHORITATIVE VARIANT PRICE
-
-   Existing pricing behavior is intentionally preserved.
-
-   1. NEW product sold as new
-      -> variant.sale_price / promotional_price
-
-   2. Dedicated REFURBISHED product
-      -> variant.sale_price / promotional_price
-
-   3. NEW product with optional refurbished condition
-      -> variant.refurbished_sale_price /
-         refurbished_promotional_price
-
-   Currency conversion is applied only AFTER the EUR price
-   has been securely resolved from Supabase.
 ========================================================= */
 
 function activePrice(
@@ -567,8 +694,6 @@ function getVariantPrice(
 
 /* =========================================================
    LEGACY PRODUCT-LEVEL FALLBACK
-
-   Used only when the request genuinely has no variant_id.
 ========================================================= */
 
 function getProductFallbackPrice(
@@ -733,28 +858,9 @@ async function sendOrderEmail({
         : "New";
 
   const safeCustomerName =
-    escapeHtml(customerName);
-
-  const safeCustomerCountry =
-    escapeHtml(customerCountry);
-
-  const safeCustomerStateRegion =
-    escapeHtml(customerStateRegion);
-
-  const safeCustomerCity =
-    escapeHtml(customerCity);
-
-  const safeCustomerStreet =
-    escapeHtml(customerStreet);
-
-  const safeCustomerHouseNumber =
-    customerHouseNumber ? escapeHtml(customerHouseNumber) : "";
-
-  const safeCustomerAddressLine2 =
-    customerAddressLine2 ? escapeHtml(customerAddressLine2) : "";
-
-  const safeCustomerPostalCode =
-    customerPostalCode ? escapeHtml(customerPostalCode) : "";
+    escapeHtml(
+      customerName
+    );
 
   const safeProductName =
     escapeHtml(
@@ -810,6 +916,54 @@ async function sendOrderEmail({
         )
       : "";
 
+  const textAddress =
+    buildTextAddress({
+      street:
+        customerStreet,
+
+      houseNumber:
+        customerHouseNumber,
+
+      addressLine2:
+        customerAddressLine2,
+
+      postalCode:
+        customerPostalCode,
+
+      city:
+        customerCity,
+
+      stateRegion:
+        customerStateRegion,
+
+      country:
+        customerCountry,
+    });
+
+  const htmlAddress =
+    buildHtmlAddress({
+      street:
+        customerStreet,
+
+      houseNumber:
+        customerHouseNumber,
+
+      addressLine2:
+        customerAddressLine2,
+
+      postalCode:
+        customerPostalCode,
+
+      city:
+        customerCity,
+
+      stateRegion:
+        customerStateRegion,
+
+      country:
+        customerCountry,
+    });
+
   const subject =
     language === "pt"
       ? `Instruções de pagamento — ${orderNumber}`
@@ -864,10 +1018,7 @@ Total a transferir: ${formattedTotal}${cveTextPt}
 
 MORADA DE ENTREGA
 
-${customerStreet}${customerHouseNumber ? `, ${customerHouseNumber}` : ""}
-${customerAddressLine2 ? `${customerAddressLine2}\n` : ""}${customerPostalCode ? `${customerPostalCode} ` : ""}${customerCity}
-${customerStateRegion}
-${customerCountry}
+${textAddress}
 
 DADOS PARA TRANSFERÊNCIA BANCÁRIA
 
@@ -924,10 +1075,7 @@ Total to transfer: ${formattedTotal}${cveTextEn}
 
 DELIVERY ADDRESS
 
-${customerStreet}${customerHouseNumber ? `, ${customerHouseNumber}` : ""}
-${customerAddressLine2 ? `${customerAddressLine2}\n` : ""}${customerPostalCode ? `${customerPostalCode} ` : ""}${customerCity}
-${customerStateRegion}
-${customerCountry}
+${textAddress}
 
 BANK TRANSFER DETAILS
 
@@ -994,7 +1142,10 @@ POKAPOK`;
       <div style="font-weight:900;letter-spacing:2px;color:#1261ff;margin-bottom:22px;">POKAPOK</div>
 
       <h1 style="font-size:28px;margin:0 0 10px;">Recebemos a sua encomenda.</h1>
-      <p style="color:#555;line-height:1.6;">Olá ${safeCustomerName}, use os dados abaixo para concluir o pagamento.</p>
+
+      <p style="color:#555;line-height:1.6;">
+        Olá ${safeCustomerName}, use os dados abaixo para concluir o pagamento.
+      </p>
 
       <div style="background:#f6f7f9;border-radius:16px;padding:18px;margin:22px 0;">
         <strong>Encomenda ${safeOrderNumber}</strong><br><br>
@@ -1003,32 +1154,67 @@ POKAPOK`;
         ${safeColor ? `${safeColor}<br>` : ""}
         ${conditionLabel}<br>
         Quantidade: ${quantity}<br><br>
+
         <strong>Total a transferir: ${formattedTotal}</strong>
       </div>
 
       ${equivalentHtml}
 
-      <h2 style="font-size:20px;">Morada de entrega</h2>
+      <h2 style="font-size:20px;">
+        Morada de entrega
+      </h2>
+
       <div style="background:#f6f7f9;border-radius:16px;padding:18px;margin:14px 0 22px;line-height:1.7;">
-        ${safeCustomerStreet}${safeCustomerHouseNumber ? `, ${safeCustomerHouseNumber}` : ""}<br>
-        ${safeCustomerAddressLine2 ? `${safeCustomerAddressLine2}<br>` : ""}
-        ${safeCustomerPostalCode ? `${safeCustomerPostalCode} ` : ""}${safeCustomerCity}<br>
-        ${safeCustomerStateRegion}<br>
-        ${safeCustomerCountry}
+        ${htmlAddress}
       </div>
 
-      <h2 style="font-size:20px;">Transferência bancária</h2>
-      <p><strong>Titular:</strong><br>${safeAccountName}</p>
-      <p><strong>IBAN:</strong><br>${safeIban}</p>
-      <p><strong>BIC / SWIFT:</strong><br>${safeBic}</p>
-      <p><strong>Banco:</strong><br>${safeBankName}</p>
-      <p><strong>País:</strong><br>${safeBankCountry}</p>
-      <p><strong>Moeda:</strong><br>${bank.currency}</p>
-      <p><strong>Montante:</strong><br>${formattedTotal}</p>
+      <h2 style="font-size:20px;">
+        Transferência bancária
+      </h2>
+
+      <p>
+        <strong>Titular:</strong><br>
+        ${safeAccountName}
+      </p>
+
+      <p>
+        <strong>IBAN:</strong><br>
+        ${safeIban}
+      </p>
+
+      <p>
+        <strong>BIC / SWIFT:</strong><br>
+        ${safeBic}
+      </p>
+
+      <p>
+        <strong>Banco:</strong><br>
+        ${safeBankName}
+      </p>
+
+      <p>
+        <strong>País:</strong><br>
+        ${safeBankCountry}
+      </p>
+
+      <p>
+        <strong>Moeda:</strong><br>
+        ${bank.currency}
+      </p>
+
+      <p>
+        <strong>Montante:</strong><br>
+        ${formattedTotal}
+      </p>
 
       <div style="background:#111827;border-radius:16px;padding:18px;margin-top:22px;">
-        <div style="font-size:12px;font-weight:700;color:#c7ccd4;">REFERÊNCIA / DESCRIÇÃO</div>
-        <div style="font-size:24px;font-weight:900;color:#fff;margin-top:6px;">${safeReference}</div>
+        <div style="font-size:12px;font-weight:700;color:#c7ccd4;">
+          REFERÊNCIA / DESCRIÇÃO
+        </div>
+
+        <div style="font-size:24px;font-weight:900;color:#fff;margin-top:6px;">
+          ${safeReference}
+        </div>
       </div>
 
       <p style="color:#555;line-height:1.6;margin-top:22px;">
@@ -1046,8 +1232,13 @@ POKAPOK`;
     <div style="background:#fff;border-radius:24px;padding:30px;border:1px solid #e5e5e5;">
       <div style="font-weight:900;letter-spacing:2px;color:#1261ff;margin-bottom:22px;">POKAPOK</div>
 
-      <h1 style="font-size:28px;margin:0 0 10px;">We received your order.</h1>
-      <p style="color:#555;line-height:1.6;">Hi ${safeCustomerName}, use the bank details below to complete your payment.</p>
+      <h1 style="font-size:28px;margin:0 0 10px;">
+        We received your order.
+      </h1>
+
+      <p style="color:#555;line-height:1.6;">
+        Hi ${safeCustomerName}, use the bank details below to complete your payment.
+      </p>
 
       <div style="background:#f6f7f9;border-radius:16px;padding:18px;margin:22px 0;">
         <strong>Order ${safeOrderNumber}</strong><br><br>
@@ -1056,32 +1247,67 @@ POKAPOK`;
         ${safeColor ? `${safeColor}<br>` : ""}
         ${conditionLabel}<br>
         Quantity: ${quantity}<br><br>
+
         <strong>Total to transfer: ${formattedTotal}</strong>
       </div>
 
       ${equivalentHtml}
 
-      <h2 style="font-size:20px;">Delivery address</h2>
+      <h2 style="font-size:20px;">
+        Delivery address
+      </h2>
+
       <div style="background:#f6f7f9;border-radius:16px;padding:18px;margin:14px 0 22px;line-height:1.7;">
-        ${safeCustomerStreet}${safeCustomerHouseNumber ? `, ${safeCustomerHouseNumber}` : ""}<br>
-        ${safeCustomerAddressLine2 ? `${safeCustomerAddressLine2}<br>` : ""}
-        ${safeCustomerPostalCode ? `${safeCustomerPostalCode} ` : ""}${safeCustomerCity}<br>
-        ${safeCustomerStateRegion}<br>
-        ${safeCustomerCountry}
+        ${htmlAddress}
       </div>
 
-      <h2 style="font-size:20px;">Bank transfer</h2>
-      <p><strong>Account holder:</strong><br>${safeAccountName}</p>
-      <p><strong>IBAN:</strong><br>${safeIban}</p>
-      <p><strong>BIC / SWIFT:</strong><br>${safeBic}</p>
-      <p><strong>Bank:</strong><br>${safeBankName}</p>
-      <p><strong>Country:</strong><br>${safeBankCountry}</p>
-      <p><strong>Currency:</strong><br>${bank.currency}</p>
-      <p><strong>Amount:</strong><br>${formattedTotal}</p>
+      <h2 style="font-size:20px;">
+        Bank transfer
+      </h2>
+
+      <p>
+        <strong>Account holder:</strong><br>
+        ${safeAccountName}
+      </p>
+
+      <p>
+        <strong>IBAN:</strong><br>
+        ${safeIban}
+      </p>
+
+      <p>
+        <strong>BIC / SWIFT:</strong><br>
+        ${safeBic}
+      </p>
+
+      <p>
+        <strong>Bank:</strong><br>
+        ${safeBankName}
+      </p>
+
+      <p>
+        <strong>Country:</strong><br>
+        ${safeBankCountry}
+      </p>
+
+      <p>
+        <strong>Currency:</strong><br>
+        ${bank.currency}
+      </p>
+
+      <p>
+        <strong>Amount:</strong><br>
+        ${formattedTotal}
+      </p>
 
       <div style="background:#111827;border-radius:16px;padding:18px;margin-top:22px;">
-        <div style="font-size:12px;font-weight:700;color:#c7ccd4;">PAYMENT REFERENCE</div>
-        <div style="font-size:24px;font-weight:900;color:#fff;margin-top:6px;">${safeReference}</div>
+        <div style="font-size:12px;font-weight:700;color:#c7ccd4;">
+          PAYMENT REFERENCE
+        </div>
+
+        <div style="font-size:24px;font-weight:900;color:#fff;margin-top:6px;">
+          ${safeReference}
+        </div>
       </div>
     </div>
   </div>
@@ -1191,11 +1417,6 @@ Deno.serve(
           "RESEND_API_KEY"
         );
 
-      /*
-       * New POKAPOK names are preferred.
-       * The old LUMINA names remain as fallbacks so your
-       * existing Supabase secrets keep working immediately.
-       */
       const fromEmail =
         Deno.env.get(
           "POKAPOK_FROM_EMAIL"
@@ -1285,11 +1506,6 @@ Deno.serve(
         );
       }
 
-      /*
-       * Current receiving account / checkout is EUR.
-       * CVE is intentionally not accepted as the settlement
-       * currency until a CVE-capable receiving rail is added.
-       */
       if (
         configuredBankCurrency !==
         SETTLEMENT_CURRENCY
@@ -1368,25 +1584,39 @@ Deno.serve(
         );
 
       const customerCountry =
-        cleanString(body.customer_country);
+        cleanString(
+          body.customer_country
+        );
 
       const customerStateRegion =
-        cleanString(body.customer_state_region);
+        cleanString(
+          body.customer_state_region
+        );
 
       const customerCity =
-        cleanString(body.customer_city);
+        cleanString(
+          body.customer_city
+        );
 
       const customerStreet =
-        cleanString(body.customer_street);
+        cleanString(
+          body.customer_street
+        );
 
       const customerHouseNumber =
-        cleanString(body.customer_house_number);
+        cleanString(
+          body.customer_house_number
+        );
 
       const customerAddressLine2 =
-        cleanString(body.customer_address_line_2);
+        cleanString(
+          body.customer_address_line_2
+        );
 
       const customerPostalCode =
-        cleanString(body.customer_postal_code);
+        cleanString(
+          body.customer_postal_code
+        );
 
       const customerNotes =
         cleanString(
@@ -1436,6 +1666,21 @@ Deno.serve(
 
       /* =====================================================
          INPUT VALIDATION
+
+         REQUIRED:
+         - name
+         - WhatsApp / phone
+         - country
+         - island / state / region
+
+         OPTIONAL:
+         - email
+         - city
+         - street
+         - house number
+         - postal code
+         - address line 2
+         - notes
       ===================================================== */
 
       if (
@@ -1447,25 +1692,41 @@ Deno.serve(
       }
 
       if (
-        !customerEmail ||
+        !customerWhatsapp
+      ) {
+        return badRequest(
+          "Customer phone or WhatsApp number is required."
+        );
+      }
+
+      if (
+        !customerCountry
+      ) {
+        return badRequest(
+          "Customer country is required."
+        );
+      }
+
+      if (
+        !customerStateRegion
+      ) {
+        return badRequest(
+          "Customer island, state or region is required."
+        );
+      }
+
+      /*
+       * Email is optional.
+       * Validate it only when supplied.
+       */
+      if (
+        customerEmail &&
         !isValidEmail(
           customerEmail
         )
       ) {
         return badRequest(
-          "A valid customer email is required."
-        );
-      }
-
-      if (
-        !customerWhatsapp ||
-        !customerCountry ||
-        !customerStateRegion ||
-        !customerCity ||
-        !customerStreet
-      ) {
-        return badRequest(
-          "Complete delivery address is required."
+          "The customer email address is invalid."
         );
       }
 
@@ -1741,10 +2002,6 @@ Deno.serve(
           quantity
         );
 
-      /*
-       * Display conversion is server-calculated.
-       * The browser never supplies an exchange rate.
-       */
       const exchangeRate =
         displayCurrency ===
         "CVE"
@@ -1816,33 +2073,41 @@ Deno.serve(
             customer_name:
               customerName,
 
+            /*
+             * Store NULL when no email was supplied.
+             */
             customer_email:
-              customerEmail,
-
-            customer_whatsapp:
-              customerWhatsapp ||
+              customerEmail ||
               null,
 
+            customer_whatsapp:
+              customerWhatsapp,
+
             customer_country:
-              customerCountry || null,
+              customerCountry,
 
             customer_state_region:
-              customerStateRegion || null,
+              customerStateRegion,
 
             customer_city:
-              customerCity || null,
+              customerCity ||
+              null,
 
             customer_street:
-              customerStreet || null,
+              customerStreet ||
+              null,
 
             customer_house_number:
-              customerHouseNumber || null,
+              customerHouseNumber ||
+              null,
 
             customer_address_line_2:
-              customerAddressLine2 || null,
+              customerAddressLine2 ||
+              null,
 
             customer_postal_code:
-              customerPostalCode || null,
+              customerPostalCode ||
+              null,
 
             customer_notes:
               customerNotes ||
@@ -1868,9 +2133,6 @@ Deno.serve(
 
             quantity,
 
-            /*
-             * Authoritative settlement amounts stay EUR.
-             */
             unit_price:
               unitPrice,
 
@@ -1880,9 +2142,6 @@ Deno.serve(
             currency:
               SETTLEMENT_CURRENCY,
 
-            /*
-             * Customer display values are stored separately.
-             */
             display_currency:
               displayCurrency,
 
@@ -1926,7 +2185,15 @@ Deno.serve(
       /* =====================================================
          EMAIL
 
-         The order remains created even if Resend fails.
+         Email is optional.
+
+         No email:
+         -> skip Resend completely
+         -> order remains successful
+
+         Email supplied:
+         -> try Resend
+         -> order remains successful even if Resend fails
       ===================================================== */
 
       let emailSent =
@@ -1938,55 +2205,66 @@ Deno.serve(
         null;
 
       if (
-        resendApiKey &&
-        fromEmail
+        customerEmail
       ) {
-        try {
-          await sendOrderEmail({
-            resendApiKey,
-            fromEmail,
-            customerEmail,
-            customerName,
-            customerCountry,
-            customerStateRegion,
-            customerCity,
-            customerStreet,
-            customerHouseNumber,
-            customerAddressLine2,
-            customerPostalCode,
-            orderNumber,
-            productName,
-            storage,
-            color,
-            condition,
-            quantity,
-            unitPrice,
-            totalAmount,
-            displayCurrency,
-            displayUnitPrice,
-            displayTotalAmount,
-            exchangeRate,
-            paymentReference,
-            bank,
-            language,
-          });
-
-          emailSent =
-            true;
-        } catch (
-          emailError
+        if (
+          resendApiKey &&
+          fromEmail
         ) {
-          console.error(
-            "Order email error:",
-            emailError
-          );
+          try {
+            await sendOrderEmail({
+              resendApiKey,
+              fromEmail,
+              customerEmail,
+              customerName,
+              customerCountry,
+              customerStateRegion,
+              customerCity,
+              customerStreet,
+              customerHouseNumber,
+              customerAddressLine2,
+              customerPostalCode,
+              orderNumber,
+              productName,
+              storage,
+              color,
+              condition,
+              quantity,
+              unitPrice,
+              totalAmount,
+              displayCurrency,
+              displayUnitPrice,
+              displayTotalAmount,
+              exchangeRate,
+              paymentReference,
+              bank,
+              language,
+            });
 
+            emailSent =
+              true;
+          } catch (
+            emailError
+          ) {
+            console.error(
+              "Order email error:",
+              emailError
+            );
+
+            warning =
+              "Order created, but the confirmation email could not be sent.";
+          }
+        } else {
           warning =
-            "Order created, but the confirmation email could not be sent.";
+            "Order created, but email delivery is not configured.";
         }
       } else {
-        warning =
-          "Order created, but email is not configured.";
+        /*
+         * This is intentional and is NOT an error.
+         */
+        console.log(
+          "No customer email provided. Skipping confirmation email."
+        );
       }
 
       /* =====================================================

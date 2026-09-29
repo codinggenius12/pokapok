@@ -127,13 +127,10 @@ export default function CheckoutScreen() {
   const {
     currency,
     formatPrice,
-  } = useCurrency(
-    language
-  );
+  } = useCurrency(language);
 
-  const {
-    width,
-  } = useWindowDimensions();
+  const { width } =
+    useWindowDimensions();
 
   const isMobile =
     width < 720;
@@ -145,9 +142,14 @@ export default function CheckoutScreen() {
   const text =
     language === "pt"
       ? {
-          backCatalog: "Voltar ao catálogo",
-          backHome: "Voltar ao início",
-          backCart: "Voltar ao carrinho",
+          backCatalog:
+            "Voltar ao catálogo",
+
+          backHome:
+            "Voltar ao início",
+
+          backCart:
+            "Voltar ao carrinho",
 
           noProductSelected:
             "NENHUM PRODUTO SELECIONADO",
@@ -218,7 +220,9 @@ export default function CheckoutScreen() {
           checkingOutOne:
             "Está a finalizar a compra de 1 artigo do carrinho.",
 
-          checkingOutMultiple: (count: number) =>
+          checkingOutMultiple: (
+            count: number
+          ) =>
             `Está a finalizar a compra de ${count} artigos do carrinho.`,
 
           cartLocked:
@@ -231,40 +235,40 @@ export default function CheckoutScreen() {
             "Morada de entrega",
 
           deliveryAddressDescription:
-            "Indique a morada completa onde pretende receber a encomenda.",
+            "O país e a ilha / estado / região são obrigatórios. Os restantes dados da morada são opcionais.",
 
           fullName:
-            "Nome completo",
+            "Nome completo *",
 
           whatsappNumber:
-            "Número de WhatsApp",
+            "Número de WhatsApp *",
 
           country:
-            "País",
+            "País *",
 
           stateRegion:
-            "Ilha / Estado / Região",
+            "Ilha / Estado / Região *",
 
           city:
-            "Cidade / Localidade",
+            "Cidade / Localidade (opcional)",
 
           street:
-            "Rua / Avenida",
+            "Rua / Avenida (opcional)",
 
           houseNumber:
-            "Número da porta (se aplicável)",
+            "Número da porta (opcional)",
 
           addressLine2:
             "Apartamento, andar, zona ou referência (opcional)",
 
           postalCode:
-            "Código postal (se aplicável)",
+            "Código postal (opcional)",
 
           emailOptional:
-            "Email",
+            "Email (opcional)",
 
           emailRequired:
-            "Introduza um endereço de email válido.",
+            "Introduza um endereço de email válido ou deixe o campo vazio.",
 
           notesOptional:
             "Observações da encomenda (opcional)",
@@ -287,13 +291,17 @@ export default function CheckoutScreen() {
           leaseRequest:
             "Leasing",
 
-          monthlyPayments: (count: number) =>
+          monthlyPayments: (
+            count: number
+          ) =>
             `${count} prestações mensais`,
 
           paymentTitle:
             "Como gostaria de pagar?",
 
-          paymentTitleWithAmount: (amount: string) =>
+          paymentTitleWithAmount: (
+            amount: string
+          ) =>
             `Como gostaria de pagar ${amount}?`,
 
           paymentDescription:
@@ -333,7 +341,7 @@ export default function CheckoutScreen() {
             "Selecione primeiro um produto.",
 
           fillRequiredFields:
-            "Preencha o seu nome, WhatsApp e os campos obrigatórios da morada de entrega.",
+            "Preencha o nome completo, número de WhatsApp, país e ilha / estado / região.",
 
           choosePaymentMethod:
             "Selecione um método de pagamento.",
@@ -400,6 +408,9 @@ export default function CheckoutScreen() {
 
           emailNotSent:
             "A encomenda foi criada, mas não foi possível enviar o email. Guarde os dados de pagamento apresentados abaixo.",
+
+          emailNotProvided:
+            "Não indicou um email. Guarde os dados de pagamento apresentados abaixo.",
 
           displayEquivalent:
             "Equivalente apresentado",
@@ -492,7 +503,9 @@ export default function CheckoutScreen() {
           checkingOutOne:
             "Checking out 1 cart item.",
 
-          checkingOutMultiple: (count: number) =>
+          checkingOutMultiple: (
+            count: number
+          ) =>
             `Checking out ${count} cart items.`,
 
           cartLocked:
@@ -505,40 +518,40 @@ export default function CheckoutScreen() {
             "Delivery address",
 
           deliveryAddressDescription:
-            "Enter the complete address where you want to receive your order.",
+            "Country and island / state / region are required. The remaining address details are optional.",
 
           fullName:
-            "Full name",
+            "Full name *",
 
           whatsappNumber:
-            "WhatsApp number",
+            "WhatsApp number *",
 
           country:
-            "Country",
+            "Country *",
 
           stateRegion:
-            "Island / State / Region",
+            "Island / State / Region *",
 
           city:
-            "City / Locality",
+            "City / Locality (optional)",
 
           street:
-            "Street / Avenue",
+            "Street / Avenue (optional)",
 
           houseNumber:
-            "House / door number (if applicable)",
+            "House / door number (optional)",
 
           addressLine2:
             "Apartment, floor, area or landmark (optional)",
 
           postalCode:
-            "Postal code (if applicable)",
+            "Postal code (optional)",
 
           emailOptional:
-            "Email",
+            "Email (optional)",
 
           emailRequired:
-            "Enter a valid email address.",
+            "Enter a valid email address or leave the field empty.",
 
           notesOptional:
             "Order notes (optional)",
@@ -561,13 +574,17 @@ export default function CheckoutScreen() {
           leaseRequest:
             "Lease",
 
-          monthlyPayments: (count: number) =>
+          monthlyPayments: (
+            count: number
+          ) =>
             `${count} monthly payments`,
 
           paymentTitle:
             "How would you like to pay?",
 
-          paymentTitleWithAmount: (amount: string) =>
+          paymentTitleWithAmount: (
+            amount: string
+          ) =>
             `How would you like to pay ${amount}?`,
 
           paymentDescription:
@@ -607,7 +624,7 @@ export default function CheckoutScreen() {
             "Please choose a product first.",
 
           fillRequiredFields:
-            "Please fill in your name, WhatsApp and the required delivery-address fields.",
+            "Please enter your full name, WhatsApp number, country and island / state / region.",
 
           choosePaymentMethod:
             "Please select a payment method.",
@@ -674,6 +691,9 @@ export default function CheckoutScreen() {
 
           emailNotSent:
             "Your order was created, but the email could not be sent. Save the payment details shown below.",
+
+          emailNotProvided:
+            "No email address was provided. Save the payment details shown below.",
 
           displayEquivalent:
             "Displayed equivalent",
@@ -954,16 +974,6 @@ export default function CheckoutScreen() {
 
   /* =======================================================
      LIVE PRODUCT IMAGE
-
-     Important:
-     Checkout can be opened directly OR from the cart.
-
-     When it comes from the cart there may be no `phone`
-     URL parameter, so use the real Supabase product ID from
-     the cart first. Slug is only a fallback.
-
-     This keeps showing the selected device/variant image
-     instead of dropping to the generic blue placeholder.
   ======================================================= */
 
   const checkoutProductId =
@@ -984,11 +994,6 @@ export default function CheckoutScreen() {
 
     async function loadCheckoutImage() {
       try {
-        /*
-         * Prefer the exact Supabase product ID.
-         * This is the most reliable route when checkout
-         * was opened from the cart.
-         */
         let liveProduct =
           checkoutProductId
             ? await getPublicProductById(
@@ -996,10 +1001,6 @@ export default function CheckoutScreen() {
               )
             : null;
 
-        /*
-         * Direct checkout can still arrive with a slug
-         * instead of a product ID.
-         */
         if (
           !liveProduct &&
           checkoutProductSlug
@@ -1056,10 +1057,6 @@ export default function CheckoutScreen() {
             .trim()
             .toLowerCase();
 
-        /*
-         * First choice:
-         * the exact variant ID that was added to the cart.
-         */
         const exactVariant =
           wantedVariantId
             ? liveVariants.find(
@@ -1069,10 +1066,6 @@ export default function CheckoutScreen() {
               )
             : null;
 
-        /*
-         * Fallback:
-         * match the chosen storage + colour.
-         */
         const matchedVariant =
           exactVariant ??
           liveVariants.find(
@@ -1088,11 +1081,6 @@ export default function CheckoutScreen() {
           ) ??
           null;
 
-        /*
-         * Colour-level fallback:
-         * another storage configuration of the same colour
-         * may still have the correct device image.
-         */
         const colorImage =
           wantedColor
             ? getColorImage(
@@ -1119,10 +1107,6 @@ export default function CheckoutScreen() {
         );
 
         if (active) {
-          /*
-           * Keep local phone-image fallbacks available.
-           * checkoutImageSource below will use them.
-           */
           setCheckoutImageUrl(
             null
           );
@@ -1146,9 +1130,6 @@ export default function CheckoutScreen() {
 
   /* =======================================================
      CHECKOUT IMAGE
-
-     Prefer the live Supabase image. Fall back to the matching
-     local image when a database image is not available.
   ======================================================= */
 
   const checkoutImageSource =
@@ -1339,13 +1320,20 @@ export default function CheckoutScreen() {
       return;
     }
 
+    /*
+     * REQUIRED CUSTOMER FIELDS:
+     * - full name
+     * - WhatsApp / phone
+     * - country
+     * - island / state / region
+     *
+     * Everything else is optional.
+     */
     if (
       !customer.name.trim() ||
       !customer.whatsapp.trim() ||
       !customer.country.trim() ||
-      !customer.stateRegion.trim() ||
-      !customer.city.trim() ||
-      !customer.street.trim()
+      !customer.stateRegion.trim()
     ) {
       alert(
         text.fillRequiredFields
@@ -1354,13 +1342,17 @@ export default function CheckoutScreen() {
       return;
     }
 
+    /*
+     * Email is OPTIONAL.
+     * Only validate it when the customer actually entered one.
+     */
     const cleanEmail =
       customer.email
         .trim()
         .toLowerCase();
 
     if (
-      !cleanEmail ||
+      cleanEmail &&
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
         cleanEmail
       )
@@ -1431,12 +1423,6 @@ export default function CheckoutScreen() {
         variantIdParam ??
         null;
 
-      /*
-       * Direct checkout fallback.
-       *
-       * If checkout was opened without database IDs in the URL,
-       * resolve them from the live Supabase product and its variants.
-       */
       if (
         phoneSlug &&
         (
@@ -1512,37 +1498,37 @@ export default function CheckoutScreen() {
       const result =
         await createOrder({
           customerName:
-            customer.name,
+            customer.name.trim(),
 
           customerEmail:
             cleanEmail,
 
           customerWhatsapp:
-            customer.whatsapp,
+            customer.whatsapp.trim(),
 
           customerCountry:
-            customer.country,
+            customer.country.trim(),
 
           customerStateRegion:
-            customer.stateRegion,
+            customer.stateRegion.trim(),
 
           customerCity:
-            customer.city,
+            customer.city.trim(),
 
           customerStreet:
-            customer.street,
+            customer.street.trim(),
 
           customerHouseNumber:
-            customer.houseNumber,
+            customer.houseNumber.trim(),
 
           customerAddressLine2:
-            customer.addressLine2,
+            customer.addressLine2.trim(),
 
           customerPostalCode:
-            customer.postalCode,
+            customer.postalCode.trim(),
 
           customerNotes:
-            customer.notes,
+            customer.notes.trim(),
 
           productId,
 
@@ -1644,6 +1630,11 @@ export default function CheckoutScreen() {
         ? `1 EUR = ${createdOrder.pricing.exchange_rate} CVE`
         : "1 EUR = 1 EUR";
 
+    const customerProvidedEmail =
+      Boolean(
+        customer.email.trim()
+      );
+
     return (
       <ScrollView
         style={styles.screen}
@@ -1661,9 +1652,7 @@ export default function CheckoutScreen() {
           ]}
         >
           <Link
-            href={
-              "/" as any
-            }
+            href={"/" as any}
             asChild
           >
             <Pressable>
@@ -2010,7 +1999,9 @@ export default function CheckoutScreen() {
           <View
             style={[
               styles.emailNotice,
-              !createdOrder.email_sent &&
+
+              customerProvidedEmail &&
+                !createdOrder.email_sent &&
                 styles.emailNoticeWarning,
             ]}
           >
@@ -2019,16 +2010,16 @@ export default function CheckoutScreen() {
                 styles.emailNoticeText
               }
             >
-              {createdOrder.email_sent
-                ? text.emailSent
-                : text.emailNotSent}
+              {!customerProvidedEmail
+                ? text.emailNotProvided
+                : createdOrder.email_sent
+                  ? text.emailSent
+                  : text.emailNotSent}
             </Text>
           </View>
 
           <Link
-            href={
-              "/catalog" as any
-            }
+            href={"/catalog" as any}
             asChild
           >
             <Pressable
@@ -2076,9 +2067,7 @@ export default function CheckoutScreen() {
           ]}
         >
           <Link
-            href={
-              "/catalog" as any
-            }
+            href={"/catalog" as any}
             asChild
           >
             <Pressable>
@@ -2089,10 +2078,7 @@ export default function CheckoutScreen() {
                     styles.backMobile,
                 ]}
               >
-                ←{" "}
-                {
-                  text.backCatalog
-                }
+                ← {text.backCatalog}
               </Text>
             </Pressable>
           </Link>
@@ -2146,9 +2132,7 @@ export default function CheckoutScreen() {
           </Text>
 
           <Link
-            href={
-              "/catalog" as any
-            }
+            href={"/catalog" as any}
             asChild
           >
             <Pressable
@@ -2185,8 +2169,6 @@ export default function CheckoutScreen() {
           styles.contentMobile,
       ]}
     >
-      {/* HEADER */}
-
       <View
         style={[
           styles.header,
@@ -2201,10 +2183,10 @@ export default function CheckoutScreen() {
           <Pressable>
             <Text
               style={[
-                  styles.back,
-                  isMobile &&
-                    styles.backMobile,
-                ]}
+                styles.back,
+                isMobile &&
+                  styles.backMobile,
+              ]}
             >
               ← {text.backCart}
             </Text>
@@ -2213,16 +2195,14 @@ export default function CheckoutScreen() {
 
         <Text
           style={[
-              styles.logo,
-              isMobile &&
-                styles.logoMobile,
-            ]}
+            styles.logo,
+            isMobile &&
+              styles.logoMobile,
+          ]}
         >
           POKAPOK
         </Text>
       </View>
-
-      {/* HERO */}
 
       <View
         style={[
@@ -2262,8 +2242,6 @@ export default function CheckoutScreen() {
         </Text>
       </View>
 
-      {/* MAIN */}
-
       <View
         style={[
           styles.page,
@@ -2271,8 +2249,6 @@ export default function CheckoutScreen() {
             styles.pageMobile,
         ]}
       >
-        {/* LEFT */}
-
         <View
           style={[
             styles.formBox,
@@ -2280,8 +2256,6 @@ export default function CheckoutScreen() {
               styles.formBoxMobile,
           ]}
         >
-          {/* PRODUCT */}
-
           <Text
             style={[
               styles.sectionTitle,
@@ -2374,8 +2348,6 @@ export default function CheckoutScreen() {
 
           {!cartHasItems ? (
             <>
-              {/* COLOR */}
-
               <Text
                 style={styles.label}
               >
@@ -2406,7 +2378,6 @@ export default function CheckoutScreen() {
                       <View
                         style={[
                           styles.colorDot,
-
                           {
                             backgroundColor:
                               item.hex,
@@ -2428,8 +2399,6 @@ export default function CheckoutScreen() {
                   )
                 )}
               </View>
-
-              {/* STORAGE */}
 
               <Text
                 style={styles.label}
@@ -2476,8 +2445,6 @@ export default function CheckoutScreen() {
                   )
                 )}
               </View>
-
-              {/* PURCHASE OPTION */}
 
               <Text
                 style={styles.label}
@@ -2528,8 +2495,6 @@ export default function CheckoutScreen() {
                   )
                 )}
               </View>
-
-              {/* TERM */}
 
               {paymentMode ===
               "installments" ? (
@@ -2584,8 +2549,6 @@ export default function CheckoutScreen() {
                   </View>
                 </>
               ) : null}
-
-              {/* INSURANCE */}
 
               {paymentMode !==
               "buy" ? (
@@ -2661,8 +2624,6 @@ export default function CheckoutScreen() {
             </View>
           )}
 
-          {/* DETAILS */}
-
           <Text
             style={[
               styles.sectionTitle,
@@ -2700,120 +2661,307 @@ export default function CheckoutScreen() {
           <View
             style={[
               styles.inputRow,
-              isMobile && styles.inputRowMobile,
+              isMobile &&
+                styles.inputRowMobile,
             ]}
           >
             <TextInput
               value={customer.whatsapp}
-              onChangeText={(value) => updateCustomer("whatsapp", value)}
-              placeholder={text.whatsappNumber}
-              placeholderTextColor={colors.ink40}
+              onChangeText={(value) =>
+                updateCustomer(
+                  "whatsapp",
+                  value
+                )
+              }
+              placeholder={
+                text.whatsappNumber
+              }
+              placeholderTextColor={
+                colors.ink40
+              }
               keyboardType="phone-pad"
-              style={[styles.input, styles.inputHalf, isMobile && styles.inputMobile, isMobile && styles.inputHalfMobile]}
+              style={[
+                styles.input,
+                styles.inputHalf,
+                isMobile &&
+                  styles.inputMobile,
+                isMobile &&
+                  styles.inputHalfMobile,
+              ]}
             />
 
             <TextInput
               value={customer.email}
-              onChangeText={(value) => updateCustomer("email", value)}
-              placeholder={text.emailOptional}
-              placeholderTextColor={colors.ink40}
+              onChangeText={(value) =>
+                updateCustomer(
+                  "email",
+                  value
+                )
+              }
+              placeholder={
+                text.emailOptional
+              }
+              placeholderTextColor={
+                colors.ink40
+              }
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
-              style={[styles.input, styles.inputHalf, isMobile && styles.inputMobile, isMobile && styles.inputHalfMobile]}
+              style={[
+                styles.input,
+                styles.inputHalf,
+                isMobile &&
+                  styles.inputMobile,
+                isMobile &&
+                  styles.inputHalfMobile,
+              ]}
             />
           </View>
 
           <Text
-            style={[styles.sectionTitle, styles.sectionSpacing, isMobile && styles.sectionTitleMobile, isMobile && styles.sectionSpacingMobile]}
+            style={[
+              styles.sectionTitle,
+              styles.sectionSpacing,
+              isMobile &&
+                styles.sectionTitleMobile,
+              isMobile &&
+                styles.sectionSpacingMobile,
+            ]}
           >
             {text.deliveryAddress}
           </Text>
 
           <Text
-            style={[styles.sectionDescription, isMobile && styles.sectionDescriptionMobile]}
+            style={[
+              styles.sectionDescription,
+              isMobile &&
+                styles.sectionDescriptionMobile,
+            ]}
           >
             {text.deliveryAddressDescription}
           </Text>
 
-          <View style={[styles.inputRow, isMobile && styles.inputRowMobile]}>
+          <View
+            style={[
+              styles.inputRow,
+              isMobile &&
+                styles.inputRowMobile,
+            ]}
+          >
             <TextInput
               value={customer.country}
-              onChangeText={(value) => updateCustomer("country", value)}
-              placeholder={text.country}
-              placeholderTextColor={colors.ink40}
+              onChangeText={(value) =>
+                updateCustomer(
+                  "country",
+                  value
+                )
+              }
+              placeholder={
+                text.country
+              }
+              placeholderTextColor={
+                colors.ink40
+              }
               autoCapitalize="words"
-              style={[styles.input, styles.inputHalf, isMobile && styles.inputMobile, isMobile && styles.inputHalfMobile]}
+              style={[
+                styles.input,
+                styles.inputHalf,
+                isMobile &&
+                  styles.inputMobile,
+                isMobile &&
+                  styles.inputHalfMobile,
+              ]}
             />
 
             <TextInput
               value={customer.stateRegion}
-              onChangeText={(value) => updateCustomer("stateRegion", value)}
-              placeholder={text.stateRegion}
-              placeholderTextColor={colors.ink40}
+              onChangeText={(value) =>
+                updateCustomer(
+                  "stateRegion",
+                  value
+                )
+              }
+              placeholder={
+                text.stateRegion
+              }
+              placeholderTextColor={
+                colors.ink40
+              }
               autoCapitalize="words"
-              style={[styles.input, styles.inputHalf, isMobile && styles.inputMobile, isMobile && styles.inputHalfMobile]}
+              style={[
+                styles.input,
+                styles.inputHalf,
+                isMobile &&
+                  styles.inputMobile,
+                isMobile &&
+                  styles.inputHalfMobile,
+              ]}
             />
           </View>
 
-          <View style={[styles.inputRow, isMobile && styles.inputRowMobile]}>
+          <View
+            style={[
+              styles.inputRow,
+              isMobile &&
+                styles.inputRowMobile,
+            ]}
+          >
             <TextInput
               value={customer.city}
-              onChangeText={(value) => updateCustomer("city", value)}
-              placeholder={text.city}
-              placeholderTextColor={colors.ink40}
+              onChangeText={(value) =>
+                updateCustomer(
+                  "city",
+                  value
+                )
+              }
+              placeholder={
+                text.city
+              }
+              placeholderTextColor={
+                colors.ink40
+              }
               autoCapitalize="words"
-              style={[styles.input, styles.inputHalf, isMobile && styles.inputMobile, isMobile && styles.inputHalfMobile]}
+              style={[
+                styles.input,
+                styles.inputHalf,
+                isMobile &&
+                  styles.inputMobile,
+                isMobile &&
+                  styles.inputHalfMobile,
+              ]}
             />
 
             <TextInput
               value={customer.postalCode}
-              onChangeText={(value) => updateCustomer("postalCode", value)}
-              placeholder={text.postalCode}
-              placeholderTextColor={colors.ink40}
+              onChangeText={(value) =>
+                updateCustomer(
+                  "postalCode",
+                  value
+                )
+              }
+              placeholder={
+                text.postalCode
+              }
+              placeholderTextColor={
+                colors.ink40
+              }
               autoCapitalize="characters"
-              style={[styles.input, styles.inputHalf, isMobile && styles.inputMobile, isMobile && styles.inputHalfMobile]}
+              style={[
+                styles.input,
+                styles.inputHalf,
+                isMobile &&
+                  styles.inputMobile,
+                isMobile &&
+                  styles.inputHalfMobile,
+              ]}
             />
           </View>
 
-          <View style={[styles.inputRow, isMobile && styles.inputRowMobile]}>
+          <View
+            style={[
+              styles.inputRow,
+              isMobile &&
+                styles.inputRowMobile,
+            ]}
+          >
             <TextInput
               value={customer.street}
-              onChangeText={(value) => updateCustomer("street", value)}
-              placeholder={text.street}
-              placeholderTextColor={colors.ink40}
+              onChangeText={(value) =>
+                updateCustomer(
+                  "street",
+                  value
+                )
+              }
+              placeholder={
+                text.street
+              }
+              placeholderTextColor={
+                colors.ink40
+              }
               autoCapitalize="words"
-              style={[styles.input, styles.inputWide, isMobile && styles.inputMobile, isMobile && styles.inputHalfMobile]}
+              style={[
+                styles.input,
+                styles.inputWide,
+                isMobile &&
+                  styles.inputMobile,
+                isMobile &&
+                  styles.inputHalfMobile,
+              ]}
             />
 
             <TextInput
               value={customer.houseNumber}
-              onChangeText={(value) => updateCustomer("houseNumber", value)}
-              placeholder={text.houseNumber}
-              placeholderTextColor={colors.ink40}
-              style={[styles.input, styles.inputNarrow, isMobile && styles.inputMobile, isMobile && styles.inputHalfMobile]}
+              onChangeText={(value) =>
+                updateCustomer(
+                  "houseNumber",
+                  value
+                )
+              }
+              placeholder={
+                text.houseNumber
+              }
+              placeholderTextColor={
+                colors.ink40
+              }
+              style={[
+                styles.input,
+                styles.inputNarrow,
+                isMobile &&
+                  styles.inputMobile,
+                isMobile &&
+                  styles.inputHalfMobile,
+              ]}
             />
           </View>
 
           <TextInput
-            value={customer.addressLine2}
-            onChangeText={(value) => updateCustomer("addressLine2", value)}
-            placeholder={text.addressLine2}
-            placeholderTextColor={colors.ink40}
-            style={[styles.input, isMobile && styles.inputMobile]}
+            value={
+              customer.addressLine2
+            }
+            onChangeText={(value) =>
+              updateCustomer(
+                "addressLine2",
+                value
+              )
+            }
+            placeholder={
+              text.addressLine2
+            }
+            placeholderTextColor={
+              colors.ink40
+            }
+            style={[
+              styles.input,
+              isMobile &&
+                styles.inputMobile,
+            ]}
           />
 
           <TextInput
             value={customer.notes}
-            onChangeText={(value) => updateCustomer("notes", value)}
-            placeholder={text.notesOptional}
-            placeholderTextColor={colors.ink40}
-            style={[styles.input, styles.notes, isMobile && styles.inputMobile, isMobile && styles.notesMobile]}
+            onChangeText={(value) =>
+              updateCustomer(
+                "notes",
+                value
+              )
+            }
+            placeholder={
+              text.notesOptional
+            }
+            placeholderTextColor={
+              colors.ink40
+            }
+            style={[
+              styles.input,
+              styles.notes,
+              isMobile &&
+                styles.inputMobile,
+              isMobile &&
+                styles.notesMobile,
+            ]}
             multiline
           />
         </View>
-
-        {/* RIGHT SUMMARY */}
 
         <View
           style={[
@@ -2924,7 +3072,8 @@ export default function CheckoutScreen() {
                 </>
               ) : null}
 
-              {monthlyDisplayTotal > 0 ? (
+              {monthlyDisplayTotal >
+              0 ? (
                 <>
                   <Text
                     style={
@@ -3034,10 +3183,6 @@ export default function CheckoutScreen() {
         </View>
       </View>
 
-      {/* ===================================================
-          PAYMENT METHODS
-      =================================================== */}
-
       <View
         style={[
           styles.paymentSection,
@@ -3084,8 +3229,6 @@ export default function CheckoutScreen() {
             {text.paymentCurrencyNotice}
           </Text>
         </View>
-
-        {/* VISA / MASTERCARD */}
 
         <Pressable
           onPress={() =>
@@ -3175,8 +3318,6 @@ export default function CheckoutScreen() {
           </View>
         </Pressable>
 
-        {/* PAYPAL */}
-
         <Pressable
           onPress={() =>
             selectPaymentMethod(
@@ -3256,8 +3397,6 @@ export default function CheckoutScreen() {
             ) : null}
           </View>
         </Pressable>
-
-        {/* BANK TRANSFER */}
 
         <Pressable
           onPress={() =>
@@ -3340,8 +3479,6 @@ export default function CheckoutScreen() {
             ) : null}
           </View>
         </Pressable>
-
-        {/* UPAY */}
 
         <View
           style={[
@@ -3496,10 +3633,6 @@ const styles = StyleSheet.create({
     paddingBottom: 34,
   },
 
-  /* =======================================================
-     HEADER
-  ======================================================= */
-
   header: {
     paddingTop: 22,
     paddingBottom: 20,
@@ -3533,10 +3666,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     letterSpacing: 2.4,
   },
-
-  /* =======================================================
-     HERO
-  ======================================================= */
 
   hero: {
     backgroundColor: colors.white,
@@ -3594,10 +3723,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
   },
-
-  /* =======================================================
-     PAGE
-  ======================================================= */
 
   page: {
     flexDirection: "row",
@@ -3668,10 +3793,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
   },
-
-  /* =======================================================
-     PRODUCT
-  ======================================================= */
 
   selectedCard: {
     backgroundColor: colors.bg,
@@ -3754,10 +3875,6 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
 
-  /* =======================================================
-     OPTIONS
-  ======================================================= */
-
   label: {
     color: colors.ink40,
     fontSize: 12,
@@ -3812,10 +3929,6 @@ const styles = StyleSheet.create({
     borderColor: colors.ink12,
   },
 
-  /* =======================================================
-     INSURANCE
-  ======================================================= */
-
   insurance: {
     marginTop: 12,
     padding: 14,
@@ -3839,10 +3952,6 @@ const styles = StyleSheet.create({
     color: colors.ink70,
     marginTop: 4,
   },
-
-  /* =======================================================
-     CART NOTICE
-  ======================================================= */
 
   cartNotice: {
     marginTop: 12,
@@ -3881,10 +3990,6 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     marginTop: 3,
   },
-
-  /* =======================================================
-     INPUTS
-  ======================================================= */
 
   input: {
     minHeight: 54,
@@ -3945,10 +4050,6 @@ const styles = StyleSheet.create({
     minHeight: 70,
     paddingTop: 12,
   },
-
-  /* =======================================================
-     SUMMARY
-  ======================================================= */
 
   summaryBox: {
     flexGrow: 1,
@@ -4024,10 +4125,6 @@ const styles = StyleSheet.create({
     marginTop: 3,
     fontSize: 11,
   },
-
-  /* =======================================================
-     PAYMENT SECTION
-  ======================================================= */
 
   paymentSection: {
     backgroundColor: colors.white,
@@ -4322,10 +4419,6 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     fontSize: 15,
   },
-
-  /* =======================================================
-     SUCCESS / EMPTY
-  ======================================================= */
 
   successBox: {
     backgroundColor: colors.white,

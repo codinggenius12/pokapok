@@ -1,9 +1,10 @@
 import { Link } from "expo-router";
 import {
-    Pressable,
-    StyleSheet,
-    Text,
-    View,
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 
 import { useLanguage } from "../../context/LanguageContext";
@@ -21,67 +22,46 @@ export default function Header({
   backHref = "/",
   showCart = true,
 }: HeaderProps) {
-  const {
-    language,
-    setLanguage,
-  } = useLanguage();
+  const { language, setLanguage } = useLanguage();
 
   return (
     <View style={styles.header}>
       {/* LEFT */}
       <View style={styles.left}>
         {showBack ? (
-          <Link
-            href={backHref as any}
-            asChild
-          >
+          <Link href={backHref as any} asChild>
             <Pressable
               style={({ pressed }) => [
                 styles.backButton,
-                pressed &&
-                  styles.pressed,
+                pressed && styles.pressed,
               ]}
             >
-              <Text
-                style={
-                  styles.backText
-                }
-              >
-                ←
-              </Text>
+              <Text style={styles.backText}>←</Text>
 
-              <Text
-                style={
-                  styles.backLabel
-                }
-              >
-                {language === "pt"
-                  ? "Voltar"
-                  : "Back"}
+              <Text style={styles.backLabel}>
+                {language === "pt" ? "Voltar" : "Back"}
               </Text>
             </Pressable>
           </Link>
         ) : (
-          <View
-            style={
-              styles.sidePlaceholder
-            }
-          />
+          <View style={styles.sidePlaceholder} />
         )}
       </View>
 
       {/* LOGO */}
-      <Link
-        href={"/" as any}
-        asChild
-      >
+      <Link href={"/" as any} asChild>
         <Pressable
           style={({ pressed }) => [
             styles.logoButton,
-            pressed &&
-              styles.pressed,
+            pressed && styles.pressed,
           ]}
         >
+          <Image
+            source={require("../../../assets/images/favicon-pokapok.png")}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
+
           <Text style={styles.logo}>
             POKAPOK
           </Text>
@@ -90,19 +70,11 @@ export default function Header({
 
       {/* RIGHT */}
       <View style={styles.right}>
-        <CurrencySwitcher
-          compact
-        />
+        <CurrencySwitcher compact />
 
-        <View
-          style={
-            styles.languageSwitcher
-          }
-        >
+        <View style={styles.languageSwitcher}>
           <Pressable
-            onPress={() =>
-              void setLanguage("pt")
-            }
+            onPress={() => void setLanguage("pt")}
             style={[
               styles.languageButton,
               language === "pt" &&
@@ -121,9 +93,7 @@ export default function Header({
           </Pressable>
 
           <Pressable
-            onPress={() =>
-              void setLanguage("en")
-            }
+            onPress={() => void setLanguage("en")}
             style={[
               styles.languageButton,
               language === "en" &&
@@ -143,22 +113,14 @@ export default function Header({
         </View>
 
         {showCart ? (
-          <Link
-            href={"/cart" as any}
-            asChild
-          >
+          <Link href={"/cart" as any} asChild>
             <Pressable
               style={({ pressed }) => [
                 styles.cartButton,
-                pressed &&
-                  styles.pressed,
+                pressed && styles.pressed,
               ]}
             >
-              <Text
-                style={
-                  styles.cartText
-                }
-              >
+              <Text style={styles.cartText}>
                 {language === "pt"
                   ? "Carrinho"
                   : "Cart"}
@@ -171,169 +133,165 @@ export default function Header({
   );
 }
 
-const styles =
-  StyleSheet.create({
-    header: {
-      width: "100%",
-      minHeight: 72,
+const styles = StyleSheet.create({
+  header: {
+    width: "100%",
+    minHeight: 72,
 
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent:
-        "space-between",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
 
-      position: "relative",
+    position: "relative",
 
-      borderBottomWidth: 1,
-      borderBottomColor:
-        colors.ink06,
-    },
+    borderBottomWidth: 1,
+    borderBottomColor: colors.ink06,
+  },
 
-    left: {
-      flex: 1,
-      alignItems:
-        "flex-start",
-      justifyContent:
-        "center",
-    },
+  left: {
+    flex: 1,
+    alignItems: "flex-start",
+    justifyContent: "center",
+  },
 
-    right: {
-      flex: 1,
+  right: {
+    flex: 1,
 
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent:
-        "flex-end",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
 
-      gap: 10,
-    },
+    gap: 10,
+  },
 
-    sidePlaceholder: {
-      width: 1,
-      height: 1,
-    },
+  sidePlaceholder: {
+    width: 1,
+    height: 1,
+  },
 
-    logoButton: {
-      position: "absolute",
-      left: "50%",
+  logoButton: {
+    position: "absolute",
+    left: "50%",
 
-      transform: [
-        {
-          translateX: -48,
-        },
-      ],
+    transform: [
+      {
+        translateX: -72,
+      },
+    ],
 
-      minHeight: 44,
+    minHeight: 44,
 
-      alignItems: "center",
-      justifyContent:
-        "center",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
 
-      paddingHorizontal: 8,
-    },
+    gap: 8,
 
-    logo: {
-      color: colors.blue,
+    paddingHorizontal: 8,
+  },
 
-      fontSize: 16,
-      fontWeight: "900",
+  logoImage: {
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+  },
 
-      letterSpacing: 2.4,
-    },
+  logo: {
+    color: colors.blue,
 
-    backButton: {
-      minHeight: 42,
+    fontSize: 16,
+    fontWeight: "900",
 
-      flexDirection: "row",
-      alignItems: "center",
+    letterSpacing: 2.4,
+  },
 
-      gap: 7,
+  backButton: {
+    minHeight: 42,
 
-      paddingRight: 10,
-    },
+    flexDirection: "row",
+    alignItems: "center",
 
-    backText: {
-      color: colors.ink,
-      fontSize: 20,
-      fontWeight: "700",
-    },
+    gap: 7,
 
-    backLabel: {
-      color: colors.ink70,
-      fontSize: 13,
-      fontWeight: "800",
-    },
+    paddingRight: 10,
+  },
 
-    languageSwitcher: {
-      flexDirection: "row",
-      alignItems: "center",
+  backText: {
+    color: colors.ink,
+    fontSize: 20,
+    fontWeight: "700",
+  },
 
-      backgroundColor:
-        colors.white,
+  backLabel: {
+    color: colors.ink70,
+    fontSize: 13,
+    fontWeight: "800",
+  },
 
-      borderRadius: 999,
+  languageSwitcher: {
+    flexDirection: "row",
+    alignItems: "center",
 
-      borderWidth: 1,
-      borderColor:
-        colors.ink12,
+    backgroundColor: colors.white,
 
-      padding: 3,
-    },
+    borderRadius: 999,
 
-    languageButton: {
-      minWidth: 35,
-      height: 32,
+    borderWidth: 1,
+    borderColor: colors.ink12,
 
-      paddingHorizontal: 9,
+    padding: 3,
+  },
 
-      alignItems: "center",
-      justifyContent:
-        "center",
+  languageButton: {
+    minWidth: 35,
+    height: 32,
 
-      borderRadius: 999,
-    },
+    paddingHorizontal: 9,
 
-    languageButtonActive: {
-      backgroundColor:
-        colors.ink,
-    },
+    alignItems: "center",
+    justifyContent: "center",
 
-    languageText: {
-      color: colors.ink40,
+    borderRadius: 999,
+  },
 
-      fontSize: 11,
-      fontWeight: "900",
+  languageButtonActive: {
+    backgroundColor: colors.ink,
+  },
 
-      letterSpacing: 0.4,
-    },
+  languageText: {
+    color: colors.ink40,
 
-    languageTextActive: {
-      color: colors.white,
-    },
+    fontSize: 11,
+    fontWeight: "900",
 
-    cartButton: {
-      minHeight: 38,
+    letterSpacing: 0.4,
+  },
 
-      alignItems: "center",
-      justifyContent:
-        "center",
+  languageTextActive: {
+    color: colors.white,
+  },
 
-      paddingHorizontal: 13,
+  cartButton: {
+    minHeight: 38,
 
-      borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
 
-      backgroundColor:
-        colors.blue,
-    },
+    paddingHorizontal: 13,
 
-    cartText: {
-      color: colors.white,
+    borderRadius: 999,
 
-      fontSize: 11,
-      fontWeight: "900",
-    },
+    backgroundColor: colors.blue,
+  },
 
-    pressed: {
-      opacity: 0.65,
-    },
-  });
+  cartText: {
+    color: colors.white,
+
+    fontSize: 11,
+    fontWeight: "900",
+  },
+
+  pressed: {
+    opacity: 0.65,
+  },
+});
