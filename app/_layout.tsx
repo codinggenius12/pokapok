@@ -1,3 +1,4 @@
+import { Analytics } from "@vercel/analytics/react";
 import { Stack } from "expo-router";
 
 import { CartProvider } from "../src/context/CartContext";
@@ -7,14 +8,18 @@ export default function RootLayout() {
   return (
     <LanguageProvider>
       <CartProvider>
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: {
-              backgroundColor: "#F4F3EE",
-            },
-          }}
-        />
+        <>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: {
+                backgroundColor: "#F4F3EE",
+              },
+            }}
+          />
+
+          <Analytics />
+        </>
       </CartProvider>
     </LanguageProvider>
   );
