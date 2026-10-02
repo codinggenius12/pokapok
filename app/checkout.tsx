@@ -1727,7 +1727,10 @@ export default function CheckoutScreen() {
   function selectPaymentMethod(
     method: CheckoutPaymentMethod
   ) {
-    if (method === "upay") {
+    if (
+      method === "upay" ||
+      method === "card"
+    ) {
       return;
     }
 
@@ -4865,20 +4868,12 @@ export default function CheckoutScreen() {
           </Text>
         </View>
 
-        <Pressable
-          onPress={() =>
-            selectPaymentMethod(
-              "card"
-            )
-          }
+        <View
           style={[
             styles.paymentOption,
             isMobile &&
               styles.paymentOptionMobile,
-
-            selectedPaymentMethod ===
-              "card" &&
-              styles.paymentOptionActive,
+            styles.paymentOptionDisabled,
           ]}
         >
           <View
@@ -4910,15 +4905,37 @@ export default function CheckoutScreen() {
               styles.paymentOptionInfo
             }
           >
-            <Text
-              style={[
-                styles.paymentOptionTitle,
-                isMobile &&
-                  styles.paymentOptionTitleMobile,
-              ]}
+            <View
+              style={
+                styles.upayTitleRow
+              }
             >
-              {text.card}
-            </Text>
+              <Text
+                style={[
+                  styles.paymentOptionTitle,
+                  isMobile &&
+                    styles.paymentOptionTitleMobile,
+                ]}
+              >
+                {text.card}
+              </Text>
+
+              <View
+                style={
+                  styles.comingSoonBadge
+                }
+              >
+                <Text
+                  style={
+                    styles.comingSoonText
+                  }
+                >
+                  {
+                    text.comingSoon
+                  }
+                </Text>
+              </View>
+            </View>
 
             <Text
               style={[
@@ -4934,24 +4951,11 @@ export default function CheckoutScreen() {
           </View>
 
           <View
-            style={[
-              styles.radio,
-
-              selectedPaymentMethod ===
-                "card" &&
-                styles.radioActive,
-            ]}
-          >
-            {selectedPaymentMethod ===
-            "card" ? (
-              <View
-                style={
-                  styles.radioDot
-                }
-              />
-            ) : null}
-          </View>
-        </Pressable>
+            style={
+              styles.radioDisabled
+            }
+          />
+        </View>
 
         <Pressable
           onPress={() =>

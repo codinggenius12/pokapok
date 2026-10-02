@@ -1,4 +1,4 @@
-import { Link, useLocalSearchParams } from "expo-router";
+import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -60,6 +60,125 @@ type CatalogItem = {
   legacyPhone?: (typeof phones)[number];
 };
 
+type ParsedCatalogSearch = {
+  text: string;
+  requestedBrand: string | null;
+  requestedCondition: ConditionFilter | null;
+  maxPrice: number | null;
+};
+
+function normalizeSearchText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function parseCatalogSearch(value: string): ParsedCatalogSearch {
+  let normalized = normalizeSearchText(value);
+
+  let maxPrice: number | null = null;
+
+  const budgetPatterns = [
+    /(?:ate|under|below|less than|menos de|abaixo de)\s*€?\s*(\d{2,4})/i,
+    /<\s*€?\s*(\d{2,4})/i,
+    /€\s*(\d{2,4})/i,
+  ];
+
+  for (const pattern of budgetPatterns) {
+    const match = normalized.match(pattern);
+
+    if (match?.[1]) {
+      const parsed = Number(match[1]);
+
+      if (Number.isFinite(parsed) && parsed > 0) {
+        maxPrice = parsed;
+        normalized = normalized
+          .replace(match[0], " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        break;
+      }
+    }
+  }
+
+  let requestedCondition: ConditionFilter | null = null;
+
+  const refurbishedWords = [
+    "refurbished",
+    "reconditioned",
+    "recondicionado",
+    "recondicionados",
+    "recondicionada",
+    "recondicionadas",
+  ];
+
+  for (const word of refurbishedWords) {
+    if (normalized.includes(word)) {
+      requestedCondition = "refurbished";
+      normalized = normalized
+        .replace(word, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      break;
+    }
+  }
+
+  if (!requestedCondition) {
+    const newWords = [
+      "new",
+      "novo",
+      "novos",
+      "nova",
+      "novas",
+    ];
+
+    for (const word of newWords) {
+      if (normalized.includes(word)) {
+        requestedCondition = "new";
+        normalized = normalized
+          .replace(word, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        break;
+      }
+    }
+  }
+
+  let requestedBrand: string | null = null;
+
+  if (/\b(?:iphone|apple)\b/.test(normalized)) {
+    requestedBrand = "apple";
+    normalized = normalized
+      .replace(/\biphone\b/g, " ")
+      .replace(/\bapple\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  } else if (/\b(?:samsung|galaxy)\b/.test(normalized)) {
+    requestedBrand = "samsung";
+    normalized = normalized
+      .replace(/\bsamsung\b/g, " ")
+      .replace(/\bgalaxy\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  } else if (/\b(?:xiaomi|poco)\b/.test(normalized)) {
+    requestedBrand = "xiaomi";
+    normalized = normalized
+      .replace(/\bxiaomi\b/g, " ")
+      .replace(/\bpoco\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  return {
+    text: normalized,
+    requestedBrand,
+    requestedCondition,
+    maxPrice,
+  };
+}
+
 function formatBrandLabel(brand: string) {
   if (!brand) {
     return "";
@@ -72,17 +191,31 @@ function formatBrandLabel(brand: string) {
 }
 
 export default function CatalogScreen() {
+  const router = useRouter();
+
   const {
     brand: brandParam,
     condition: conditionParam,
     maxPrice: maxPriceParam,
     sort: sortParam,
+    search: searchParam,
   } = useLocalSearchParams<{
     brand?: string | string[];
     condition?: string | string[];
     maxPrice?: string | string[];
     sort?: string | string[];
+    search?: string | string[];
   }>();
+
+  const rawSearch =
+    Array.isArray(searchParam)
+      ? searchParam[0]
+      : searchParam;
+
+  const parsedSearchFromUrl =
+    parseCatalogSearch(
+      rawSearch ?? ""
+    );
 
   const rawMaxPrice =
     Array.isArray(maxPriceParam)
@@ -94,7 +227,7 @@ export default function CatalogScreen() {
       ? Number(rawMaxPrice)
       : null;
 
-  const maxPriceFromUrl =
+  const explicitMaxPriceFromUrl =
     parsedMaxPrice !== null &&
     Number.isFinite(
       parsedMaxPrice
@@ -102,6 +235,10 @@ export default function CatalogScreen() {
     parsedMaxPrice > 0
       ? parsedMaxPrice
       : null;
+
+  const maxPriceFromUrl =
+    explicitMaxPriceFromUrl ??
+    parsedSearchFromUrl.maxPrice;
 
   const rawSort =
     Array.isArray(sortParam)
@@ -355,6 +492,35 @@ export default function CatalogScreen() {
   }, [catalogItems]);
 
   /* =========================================================
+     SEARCH FROM URL
+
+     Homepage search links use:
+     /catalog?search=...
+
+     The catalogue converts common searches such as:
+     - iPhone -> Apple brand
+     - Samsung / Galaxy -> Samsung brand
+     - POCO / Xiaomi -> Xiaomi brand
+     - refurbished / recondicionado -> refurbished condition
+     - under €300 / até €300 -> maximum-price filter
+
+     Any remaining text is placed in the catalogue search box.
+  ========================================================= */
+
+  useEffect(() => {
+    if (rawSearch === undefined) {
+      return;
+    }
+
+    setQuery(
+      parsedSearchFromUrl.text
+    );
+  }, [
+    rawSearch,
+    parsedSearchFromUrl.text,
+  ]);
+
+  /* =========================================================
      BRAND FROM URL
 
      Allows links such as:
@@ -377,27 +543,41 @@ export default function CatalogScreen() {
         ?.trim()
         .toLowerCase();
 
-    if (!requestedBrand) {
+    if (requestedBrand) {
+      if (requestedBrand === "all") {
+        setBrand("all");
+        return;
+      }
+
+      if (brands.includes(requestedBrand)) {
+        setBrand(requestedBrand);
+      }
+
       return;
     }
 
-    if (requestedBrand === "all") {
+    if (parsedSearchFromUrl.requestedBrand) {
+      if (
+        brands.includes(
+          parsedSearchFromUrl.requestedBrand
+        )
+      ) {
+        setBrand(
+          parsedSearchFromUrl.requestedBrand
+        );
+      }
+
+      return;
+    }
+
+    if (rawSearch !== undefined) {
       setBrand("all");
-      return;
-    }
-
-    if (
-      brands.includes(
-        requestedBrand
-      )
-    ) {
-      setBrand(
-        requestedBrand
-      );
     }
   }, [
     brandParam,
     brands,
+    rawSearch,
+    parsedSearchFromUrl.requestedBrand,
   ]);
 
   /* =========================================================
@@ -423,23 +603,40 @@ export default function CatalogScreen() {
         ?.trim()
         .toLowerCase();
 
-    if (!requestedCondition) {
+    if (requestedCondition) {
+      if (
+        requestedCondition === "all" ||
+        requestedCondition === "new" ||
+        requestedCondition ===
+          "refurbished" ||
+        requestedCondition === "used"
+      ) {
+        setCondition(
+          requestedCondition as
+            ConditionFilter
+        );
+      }
+
       return;
     }
 
     if (
-      requestedCondition === "all" ||
-      requestedCondition === "new" ||
-      requestedCondition ===
-        "refurbished" ||
-      requestedCondition === "used"
+      parsedSearchFromUrl.requestedCondition
     ) {
       setCondition(
-        requestedCondition as
-          ConditionFilter
+        parsedSearchFromUrl.requestedCondition
       );
+      return;
     }
-  }, [conditionParam]);
+
+    if (rawSearch !== undefined) {
+      setCondition("all");
+    }
+  }, [
+    conditionParam,
+    rawSearch,
+    parsedSearchFromUrl.requestedCondition,
+  ]);
 
   /* =========================================================
      CATALOGUE DISPLAY PRICE
@@ -1052,13 +1249,15 @@ export default function CatalogScreen() {
     query.trim().length > 0 ||
     brand !== "all" ||
     condition !== "all" ||
-    priceFilter !== "all";
+    priceFilter !== "all" ||
+    maxPriceFromUrl !== null;
 
   const activeFilterCount =
     [
       brand !== "all",
       condition !== "all",
       priceFilter !== "all",
+      maxPriceFromUrl !== null,
     ].filter(Boolean).length;
 
   const collapsedFilterSummary =
@@ -1080,6 +1279,12 @@ export default function CatalogScreen() {
             priceFilter
           )
         : null,
+
+      maxPriceFromUrl !== null
+        ? language === "pt"
+          ? `Até ${formatPrice(maxPriceFromUrl)}`
+          : `Up to ${formatPrice(maxPriceFromUrl)}`
+        : null,
     ]
       .filter(
         (
@@ -1094,6 +1299,10 @@ export default function CatalogScreen() {
     setBrand("all");
     setCondition("all");
     setPriceFilter("all");
+
+    router.replace(
+      "/catalog" as any
+    );
   }
 
   /* =========================================================

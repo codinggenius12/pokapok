@@ -1,4 +1,4 @@
-import { Link } from "expo-router";
+import { Link, useRouter } from "expo-router";
 import {
   useEffect,
   useMemo,
@@ -349,6 +349,9 @@ function parseSearch(
 ========================================================= */
 
 export default function HomeScreen() {
+  const router =
+    useRouter();
+
   const {
     totalItems,
   } = useCart();
@@ -849,12 +852,6 @@ export default function HomeScreen() {
       : null;
   }
 
-  /*
-   * Finds the lowest available price for a brand across
-   * BOTH new and refurbished configurations.
-   *
-   * All prices come from Supabase variants.
-   */
   function getLowestBrandPrice(
     brand: string
   ): number | null {
@@ -906,8 +903,6 @@ export default function HomeScreen() {
           continue;
         }
 
-        /* NEW */
-
         if (
           sellConditions.includes(
             "new"
@@ -946,8 +941,6 @@ export default function HomeScreen() {
             );
           }
         }
-
-        /* REFURBISHED */
 
         if (
           sellConditions.includes(
@@ -1021,12 +1014,6 @@ export default function HomeScreen() {
     sortedFeaturedPhones[0] ??
     phones[0];
 
-  /*
-   * First ad:
-   * pick an actual phone whose live lowest price is <= €300.
-   *
-   * Cheapest qualifying device is preferred.
-   */
   const featuredBudgetPhone =
     [...phones]
       .filter(
@@ -1065,12 +1052,6 @@ export default function HomeScreen() {
       )[0] ??
     featuredPhone;
 
-  /*
-   * iPhone visual:
-   * cheapest iPhone available in the local visual catalogue.
-   * The displayed banner price itself is still calculated
-   * directly from all live Supabase products.
-   */
   const featuredIphone =
     [...phones]
       .filter(
@@ -1111,10 +1092,6 @@ export default function HomeScreen() {
     ) ??
     featuredPhone;
 
-  /*
-   * Samsung visual:
-   * cheapest Samsung available in local phone visuals.
-   */
   const featuredSamsung =
     [...phones]
       .filter(
@@ -1603,7 +1580,7 @@ export default function HomeScreen() {
             "desde",
 
           resultsBelow:
-            "Ver resultados abaixo",
+            "Ver resultados no catálogo",
 
           clear:
             "Limpar",
@@ -1640,7 +1617,7 @@ export default function HomeScreen() {
             "from",
 
           resultsBelow:
-            "View results below",
+            "View results in catalog",
 
           clear:
             "Clear",
@@ -1671,6 +1648,38 @@ export default function HomeScreen() {
 
     setSearchFocused(
       true
+    );
+  }
+
+  /* =======================================================
+     OPEN SEARCH IN FULL CATALOG
+  ======================================================= */
+
+  function openCatalogSearch(
+    value:
+      string = search
+  ) {
+    const cleanSearch =
+      value.trim();
+
+    setSearchFocused(
+      false
+    );
+
+    if (
+      !cleanSearch
+    ) {
+      router.push(
+        "/catalog" as any
+      );
+
+      return;
+    }
+
+    router.push(
+      `/catalog?search=${encodeURIComponent(
+        cleanSearch
+      )}` as any
     );
   }
 
@@ -1736,6 +1745,9 @@ export default function HomeScreen() {
               setSearchFocused(
                 true
               )
+            }
+            onSubmitEditing={() =>
+              openCatalogSearch()
             }
             placeholder={
               t.home
@@ -1982,9 +1994,7 @@ export default function HomeScreen() {
 
                     <Pressable
                       onPress={() =>
-                        setSearchFocused(
-                          false
-                        )
+                        openCatalogSearch()
                       }
                       style={
                         styles.searchSeeResultsButton
@@ -2005,7 +2015,7 @@ export default function HomeScreen() {
                           styles.searchSeeResultsArrow
                         }
                       >
-                        ↓
+                        →
                       </Text>
                     </Pressable>
                   </>
@@ -2277,10 +2287,6 @@ export default function HomeScreen() {
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        {/* =================================================
-            MOBILE HEADER
-        ================================================= */}
-
         {isMobile ? (
           <View
             style={
@@ -2471,10 +2477,6 @@ export default function HomeScreen() {
           </View>
         ) : (
           <>
-            {/* =============================================
-                DESKTOP UTILITY BAR
-            ============================================= */}
-
             <View
               style={
                 styles.utilityBar
@@ -2560,10 +2562,6 @@ export default function HomeScreen() {
                 </View>
               </View>
             </View>
-
-            {/* =============================================
-                DESKTOP HEADER
-            ============================================= */}
 
             <View
               style={
@@ -2682,10 +2680,6 @@ export default function HomeScreen() {
             </View>
           </>
         )}
-
-        {/* =================================================
-            BRAND + CONDITION FILTERS
-        ================================================= */}
 
         <View
           style={[
@@ -2844,10 +2838,6 @@ export default function HomeScreen() {
           </ScrollView>
         </View>
 
-        {/* =================================================
-            PROMOTION BANNERS
-        ================================================= */}
-
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={
@@ -2871,10 +2861,6 @@ export default function HomeScreen() {
             styles.promoCarousel
           }
         >
-          {/* ===============================================
-              PHONES UNDER €300
-          =============================================== */}
-
           <Link
             href={
               "/catalog?maxPrice=300&sort=price-asc" as any
@@ -2995,10 +2981,6 @@ export default function HomeScreen() {
               </View>
             </Pressable>
           </Link>
-
-          {/* ===============================================
-              ALL IPHONES — NEW + REFURBISHED
-          =============================================== */}
 
           <Link
             href={
@@ -3125,10 +3107,6 @@ export default function HomeScreen() {
               </View>
             </Pressable>
           </Link>
-
-          {/* ===============================================
-              SAMSUNG — LIVE LOWEST PRICE
-          =============================================== */}
 
           <Link
             href={
@@ -3267,10 +3245,6 @@ export default function HomeScreen() {
           </Link>
         </ScrollView>
 
-        {/* =================================================
-            DESKTOP TRUST + STATEMENT
-        ================================================= */}
-
         {!isMobile ? (
           <>
             <View
@@ -3408,10 +3382,6 @@ export default function HomeScreen() {
             </View>
           </>
         ) : null}
-
-        {/* =================================================
-            PRODUCT SECTION HEADER
-        ================================================= */}
 
         {isMobile ? (
           <View
@@ -3553,10 +3523,6 @@ export default function HomeScreen() {
             </Link>
           </View>
         )}
-
-        {/* =================================================
-            PRODUCTS
-        ================================================= */}
 
         {filteredPhones.length ===
         0 ? (
