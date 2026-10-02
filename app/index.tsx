@@ -1148,16 +1148,16 @@ export default function HomeScreen() {
       "pt"
       ? {
           budgetKicker:
-            "ATÉ 300 €",
+            "Desde 180 €",
 
           budgetTitle:
-            "Smartphones até 300 €",
+            "Smartphones desde 180 €",
 
           budgetBody:
             "Descubra equipamentos acessíveis, novos e recondicionados, do mais barato ao mais caro.",
 
           budgetAction:
-            "Ver até 300 €",
+            "Ver desde 180 €",
 
           iphoneKicker:
             "IPHONE",
@@ -1185,16 +1185,16 @@ export default function HomeScreen() {
         }
       : {
           budgetKicker:
-            "UNDER €300",
+            "FROM €180",
 
           budgetTitle:
-            "Phones under €300",
+            "Phones from €180",
 
           budgetBody:
             "Discover affordable new and refurbished phones, ordered from cheapest to most expensive.",
 
           budgetAction:
-            "Shop under €300",
+            "Shop from €180",
 
           iphoneKicker:
             "IPHONE",
@@ -1595,7 +1595,7 @@ export default function HomeScreen() {
             "Recondicionados",
 
           quick300:
-            "Até €300",
+            "desde €180",
 
           quick400:
             "Até €400",
@@ -1632,7 +1632,7 @@ export default function HomeScreen() {
             "Refurbished",
 
           quick300:
-            "Under €300",
+            "desde 180",
 
           quick400:
             "Under €400",
@@ -2194,8 +2194,8 @@ export default function HomeScreen() {
                       applyQuickSearch(
                         language ===
                           "pt"
-                          ? "até €300"
-                          : "under €300"
+                          ? "desde €180"
+                          : "from €180"
                       )
                     }
                     style={
@@ -2933,8 +2933,8 @@ export default function HomeScreen() {
                     >
                       {language ===
                       "pt"
-                        ? "ATÉ"
-                        : "UNDER"}
+                        ? "DESDE"
+                        : "FROM"}
                     </Text>
 
                     <Text
@@ -2943,7 +2943,7 @@ export default function HomeScreen() {
                       }
                     >
                       {formatPrice(
-                        300
+                        180
                       )}
                     </Text>
                   </View>
