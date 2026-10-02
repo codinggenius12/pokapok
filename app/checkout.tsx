@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 
+import PayPalCheckout from "../src/components/payment/PayPalCheckout";
 import { useCart } from "../src/context/CartContext";
 import { useCurrency } from "../src/context/CurrencyStore";
 import { useLanguage } from "../src/context/LanguageContext";
@@ -46,6 +47,205 @@ type CheckoutPaymentMethod =
   | "paypal"
   | "bank_transfer"
   | "upay";
+
+type PayPalCheckoutSuccessResult = {
+  paypalOrderId: string;
+
+  captureId: string;
+
+  amount: number | null;
+
+  currency: string | null;
+
+  orderId: string | null;
+
+  orderNumber: string | null;
+
+  paymentStatus: string | null;
+
+  orderStatus: string | null;
+
+  emailSent: boolean;
+
+  warning: string | null;
+
+  subtotal: number | null;
+
+  shipping: number | null;
+
+  total: number | null;
+
+  displayCurrency: string | null;
+
+  displayTotal: number | null;
+
+  exchangeRate: number | null;
+};
+
+type ShippingCountry = {
+  value: string;
+  pt: string;
+  en: string;
+};
+
+/* =========================================================
+   SHIPPING DESTINATIONS
+========================================================= */
+
+const SHIPPING_COUNTRIES: ShippingCountry[] = [
+  {
+    value: "Cabo Verde",
+    pt: "Cabo Verde",
+    en: "Cape Verde",
+  },
+  {
+    value: "Portugal",
+    pt: "Portugal",
+    en: "Portugal",
+  },
+  {
+    value: "Netherlands",
+    pt: "Países Baixos",
+    en: "Netherlands",
+  },
+  {
+    value: "Belgium",
+    pt: "Bélgica",
+    en: "Belgium",
+  },
+  {
+    value: "Germany",
+    pt: "Alemanha",
+    en: "Germany",
+  },
+  {
+    value: "France",
+    pt: "França",
+    en: "France",
+  },
+  {
+    value: "Spain",
+    pt: "Espanha",
+    en: "Spain",
+  },
+  {
+    value: "Italy",
+    pt: "Itália",
+    en: "Italy",
+  },
+  {
+    value: "Luxembourg",
+    pt: "Luxemburgo",
+    en: "Luxembourg",
+  },
+  {
+    value: "Austria",
+    pt: "Áustria",
+    en: "Austria",
+  },
+  {
+    value: "Denmark",
+    pt: "Dinamarca",
+    en: "Denmark",
+  },
+  {
+    value: "Sweden",
+    pt: "Suécia",
+    en: "Sweden",
+  },
+  {
+    value: "Finland",
+    pt: "Finlândia",
+    en: "Finland",
+  },
+  {
+    value: "Ireland",
+    pt: "Irlanda",
+    en: "Ireland",
+  },
+  {
+    value: "Greece",
+    pt: "Grécia",
+    en: "Greece",
+  },
+  {
+    value: "Poland",
+    pt: "Polónia",
+    en: "Poland",
+  },
+  {
+    value: "Czech Republic",
+    pt: "Chéquia",
+    en: "Czech Republic",
+  },
+  {
+    value: "Slovakia",
+    pt: "Eslováquia",
+    en: "Slovakia",
+  },
+  {
+    value: "Slovenia",
+    pt: "Eslovénia",
+    en: "Slovenia",
+  },
+  {
+    value: "Croatia",
+    pt: "Croácia",
+    en: "Croatia",
+  },
+  {
+    value: "Hungary",
+    pt: "Hungria",
+    en: "Hungary",
+  },
+  {
+    value: "Romania",
+    pt: "Roménia",
+    en: "Romania",
+  },
+  {
+    value: "Bulgaria",
+    pt: "Bulgária",
+    en: "Bulgaria",
+  },
+  {
+    value: "Estonia",
+    pt: "Estónia",
+    en: "Estonia",
+  },
+  {
+    value: "Latvia",
+    pt: "Letónia",
+    en: "Latvia",
+  },
+  {
+    value: "Lithuania",
+    pt: "Lituânia",
+    en: "Lithuania",
+  },
+  {
+    value: "Cyprus",
+    pt: "Chipre",
+    en: "Cyprus",
+  },
+  {
+    value: "Malta",
+    pt: "Malta",
+    en: "Malta",
+  },
+];
+
+const CABO_VERDE_ISLANDS = [
+  "Santiago",
+  "São Vicente",
+  "Santo Antão",
+  "São Nicolau",
+  "Sal",
+  "Boa Vista",
+  "Maio",
+  "Fogo",
+  "Brava",
+];
 
 /* =========================================================
    HELPERS
@@ -97,6 +297,18 @@ function findIndexByName<T>(
   );
 
   return index >= 0 ? index : 0;
+}
+
+function getShippingPrice(
+  country: string
+) {
+  if (!country) {
+    return 0;
+  }
+
+  return country === "Cabo Verde"
+    ? 21
+    : 12.75;
 }
 
 /* =========================================================
@@ -172,6 +384,39 @@ export default function CheckoutScreen() {
           requestReceivedDescription:
             "A sua encomenda foi criada. Efetue a transferência usando os dados abaixo e a referência exata da encomenda.",
 
+          paypalPaymentConfirmed:
+            "PAGAMENTO CONFIRMADO",
+
+          paypalPaymentConfirmedTitle:
+            "Pagamento recebido com sucesso.",
+
+          paypalPaymentConfirmedDescription:
+            "O pagamento da sua encomenda foi confirmado através do PayPal. A sua encomenda seguirá agora para processamento.",
+
+          paid:
+            "Pago",
+
+          processing:
+            "Em processamento",
+
+          paymentMethod:
+            "Método de pagamento",
+
+          paypalReference:
+            "Referência PayPal",
+
+          totalPaid:
+            "Total pago",
+
+          paypalEmailSent:
+            "Enviámos também a confirmação da encomenda para o seu email.",
+
+          paypalEmailNotSent:
+            "O pagamento foi confirmado, mas não foi possível enviar o email de confirmação.",
+
+          paypalEmailNotProvided:
+            "O pagamento foi confirmado. Não indicou um email para receber a confirmação.",
+
           browseMorePhones:
             "Ver mais equipamentos",
 
@@ -235,7 +480,7 @@ export default function CheckoutScreen() {
             "Morada de entrega",
 
           deliveryAddressDescription:
-            "O país e a ilha / estado / região são obrigatórios. Os restantes dados da morada são opcionais.",
+            "Enviamos apenas para Cabo Verde e Europa. Selecione o país e indique a ilha / estado / região.",
 
           fullName:
             "Nome completo *",
@@ -244,7 +489,7 @@ export default function CheckoutScreen() {
             "Número de WhatsApp *",
 
           country:
-            "País *",
+            "Selecionar país *",
 
           stateRegion:
             "Ilha / Estado / Região *",
@@ -275,6 +520,18 @@ export default function CheckoutScreen() {
 
           requestSummary:
             "Resumo da encomenda",
+
+          shipping:
+            "Envio",
+
+          shippingPending:
+            "Selecione o país para calcular o envio.",
+
+          subtotal:
+            "Subtotal",
+
+          totalWithShipping:
+            "Total com envio",
 
           perMonth:
             "/mês",
@@ -373,6 +630,9 @@ export default function CheckoutScreen() {
           missingDatabaseProduct:
             "Não foi possível identificar este produto na base de dados. Volte ao produto e adicione-o novamente ao carrinho.",
 
+          missingRefurbishedConfiguration:
+            "Não foi possível identificar a condição estética ou a opção de bateria deste equipamento recondicionado. Volte ao produto e adicione-o novamente ao carrinho.",
+
           orderNumber:
             "Número da encomenda",
 
@@ -455,6 +715,39 @@ export default function CheckoutScreen() {
           requestReceivedDescription:
             "Your order has been created. Complete the bank transfer using the details below and the exact order reference.",
 
+          paypalPaymentConfirmed:
+            "PAYMENT CONFIRMED",
+
+          paypalPaymentConfirmedTitle:
+            "Payment received successfully.",
+
+          paypalPaymentConfirmedDescription:
+            "Your PayPal payment has been confirmed. Your order will now move to processing.",
+
+          paid:
+            "Paid",
+
+          processing:
+            "Processing",
+
+          paymentMethod:
+            "Payment method",
+
+          paypalReference:
+            "PayPal reference",
+
+          totalPaid:
+            "Total paid",
+
+          paypalEmailSent:
+            "We also sent your order confirmation to your email address.",
+
+          paypalEmailNotSent:
+            "Your payment was confirmed, but we could not send the confirmation email.",
+
+          paypalEmailNotProvided:
+            "Your payment was confirmed. No email address was provided for the confirmation.",
+
           browseMorePhones:
             "Browse more phones",
 
@@ -518,7 +811,7 @@ export default function CheckoutScreen() {
             "Delivery address",
 
           deliveryAddressDescription:
-            "Country and island / state / region are required. The remaining address details are optional.",
+            "We currently ship only to Cape Verde and Europe. Select your country and island / state / region.",
 
           fullName:
             "Full name *",
@@ -527,7 +820,7 @@ export default function CheckoutScreen() {
             "WhatsApp number *",
 
           country:
-            "Country *",
+            "Select country *",
 
           stateRegion:
             "Island / State / Region *",
@@ -558,6 +851,18 @@ export default function CheckoutScreen() {
 
           requestSummary:
             "Order summary",
+
+          shipping:
+            "Shipping",
+
+          shippingPending:
+            "Select your country to calculate shipping.",
+
+          subtotal:
+            "Subtotal",
+
+          totalWithShipping:
+            "Total including shipping",
 
           perMonth:
             "/month",
@@ -655,6 +960,9 @@ export default function CheckoutScreen() {
 
           missingDatabaseProduct:
             "We could not identify this product in the database. Return to the product and add it to your cart again.",
+
+          missingRefurbishedConfiguration:
+            "We could not identify the cosmetic condition or battery option for this refurbished device. Return to the product and add it to your cart again.",
 
           orderNumber:
             "Order number",
@@ -839,6 +1147,16 @@ export default function CheckoutScreen() {
     );
 
   const [
+    countryDropdownOpen,
+    setCountryDropdownOpen,
+  ] = useState(false);
+
+  const [
+    islandDropdownOpen,
+    setIslandDropdownOpen,
+  ] = useState(false);
+
+  const [
     customer,
     setCustomer,
   ] = useState({
@@ -846,7 +1164,7 @@ export default function CheckoutScreen() {
     whatsapp: "",
     email: "",
 
-    country: "Cabo Verde",
+    country: "",
     stateRegion: "",
     city: "",
     street: "",
@@ -880,6 +1198,14 @@ export default function CheckoutScreen() {
     setCreatedOrder,
   ] =
     useState<CreateOrderResult | null>(
+      null
+    );
+
+  const [
+    completedPayPalOrder,
+    setCompletedPayPalOrder,
+  ] =
+    useState<PayPalCheckoutSuccessResult | null>(
       null
     );
 
@@ -1262,14 +1588,121 @@ export default function CheckoutScreen() {
         ? monthlyPrice
         : 0;
 
+  /* =======================================================
+     SHIPPING
+  ======================================================= */
+
+  const shippingPrice =
+    getShippingPrice(
+      customer.country
+    );
+
+  const hasShippingDestination =
+    Boolean(
+      customer.country
+    );
+
+  const finalOneTimeDisplayTotal =
+    oneTimeDisplayTotal +
+    (
+      oneTimeDisplayTotal > 0 &&
+      hasShippingDestination
+        ? shippingPrice
+        : 0
+    );
+
   const paymentQuestion =
-    oneTimeDisplayTotal > 0
+    finalOneTimeDisplayTotal > 0
       ? text.paymentTitleWithAmount(
           formatPrice(
-            oneTimeDisplayTotal
+            finalOneTimeDisplayTotal
           )
         )
       : text.paymentTitle;
+
+  /* =======================================================
+     PAYPAL CONFIGURATION
+  ======================================================= */
+
+  const paypalProductId =
+    selectedCartItem
+      ?.productId ??
+    productIdParam ??
+    null;
+
+  const paypalVariantId =
+    selectedCartItem
+      ?.variantId ??
+    variantIdParam ??
+    null;
+
+  const paypalCondition:
+    | "new"
+    | "refurbished" =
+    (
+      selectedCartItem
+        ?.phone.condition ??
+      (
+        conditionParam ===
+          "refurbished"
+          ? "refurbished"
+          : conditionParam ===
+              "new"
+            ? "new"
+            : selectedPhone
+                ?.condition
+      )
+    ) ===
+    "refurbished"
+      ? "refurbished"
+      : "new";
+
+  const paypalQuantity =
+    selectedCartItem
+      ?.quantity ??
+    1;
+
+  /*
+   * Refurbished selections are stored on the CartItem.
+   *
+   * They describe which option the customer selected.
+   * The browser does NOT decide their authoritative price.
+   */
+  const paypalRefurbishedGrade =
+    paypalCondition ===
+      "refurbished"
+      ? selectedCartItem
+          ?.refurbishedGrade ??
+        null
+      : null;
+
+  const paypalBatteryGrade =
+    paypalCondition ===
+      "refurbished"
+      ? selectedCartItem
+          ?.batteryGrade ??
+        null
+      : null;
+
+  /* =======================================================
+     COUNTRY DISPLAY
+  ======================================================= */
+
+  const selectedCountry =
+    customer.country
+      ? SHIPPING_COUNTRIES.find(
+          (country) =>
+            country.value ===
+            customer.country
+        )
+      : null;
+
+  const selectedCountryDisplay =
+    selectedCountry
+      ? language === "pt"
+        ? selectedCountry.pt
+        : selectedCountry.en
+      : "";
 
   /* =======================================================
      CUSTOMER
@@ -1301,6 +1734,125 @@ export default function CheckoutScreen() {
     setSelectedPaymentMethod(
       method
     );
+
+    setSubmitError(
+      null
+    );
+  }
+
+  /* =======================================================
+     PAYPAL VALIDATION
+  ======================================================= */
+
+  function validateCustomerDetails() {
+    if (
+      !selectedPhone ||
+      !selectedColor ||
+      !selectedStorage
+    ) {
+      alert(
+        text.chooseProductFirst
+      );
+
+      return false;
+    }
+
+    if (
+      !customer.name.trim() ||
+      !customer.whatsapp.trim() ||
+      !customer.country.trim() ||
+      !customer.stateRegion.trim()
+    ) {
+      alert(
+        text.fillRequiredFields
+      );
+
+      return false;
+    }
+
+    const cleanEmail =
+      customer.email
+        .trim()
+        .toLowerCase();
+
+    if (
+      cleanEmail &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+        cleanEmail
+      )
+    ) {
+      alert(
+        text.emailRequired
+      );
+
+      return false;
+    }
+
+    if (
+      cartHasItems &&
+      items.length !== 1
+    ) {
+      alert(
+        text.singleItemOnly
+      );
+
+      return false;
+    }
+
+    const orderItem =
+      cartHasItems
+        ? items[0]
+        : null;
+
+    const currentPaymentMode =
+      orderItem
+        ?.paymentMode ??
+      paymentMode;
+
+    if (
+      currentPaymentMode !==
+      "buy"
+    ) {
+      alert(
+        text.purchaseOnly
+      );
+
+      return false;
+    }
+
+    if (
+      !paypalProductId
+    ) {
+      alert(
+        text.missingDatabaseProduct
+      );
+
+      return false;
+    }
+
+    /*
+     * Old cart items created before the refurbished-option
+     * update do not contain these values.
+     *
+     * They must be re-added from the product page instead
+     * of guessing a grade or battery choice.
+     */
+    if (
+      paypalCondition ===
+        "refurbished" &&
+      (
+        !paypalRefurbishedGrade ||
+        !paypalBatteryGrade
+      )
+    ) {
+      alert(
+        text.missingRefurbishedConfiguration
+      );
+
+      return false;
+    }
+
+    return true;
   }
 
   /* =======================================================
@@ -1320,15 +1872,6 @@ export default function CheckoutScreen() {
       return;
     }
 
-    /*
-     * REQUIRED CUSTOMER FIELDS:
-     * - full name
-     * - WhatsApp / phone
-     * - country
-     * - island / state / region
-     *
-     * Everything else is optional.
-     */
     if (
       !customer.name.trim() ||
       !customer.whatsapp.trim() ||
@@ -1342,10 +1885,6 @@ export default function CheckoutScreen() {
       return;
     }
 
-    /*
-     * Email is OPTIONAL.
-     * Only validate it when the customer actually entered one.
-     */
     const cleanEmail =
       customer.email
         .trim()
@@ -1495,6 +2034,68 @@ export default function CheckoutScreen() {
             ? "new"
             : selectedPhone.condition);
 
+      /* ===================================================
+         BANK REFURBISHED CONFIGURATION
+
+         The browser sends only which options were selected.
+
+         It does NOT send:
+         - cosmetic grade price
+         - battery surcharge
+         - shipping price
+         - authoritative total
+
+         create-order will calculate all prices again on the
+         server.
+      =================================================== */
+
+      const requestedRefurbishedGrade =
+        requestedCondition ===
+          "refurbished"
+          ? orderItem
+              ?.refurbishedGrade ??
+            null
+          : null;
+
+      const requestedBatteryGrade =
+        requestedCondition ===
+          "refurbished"
+          ? orderItem
+              ?.batteryGrade ??
+            null
+          : null;
+
+      /*
+       * Never guess the configuration of an old persisted
+       * refurbished cart item.
+       */
+      if (
+        requestedCondition ===
+          "refurbished" &&
+        (
+          !requestedRefurbishedGrade ||
+          !requestedBatteryGrade
+        )
+      ) {
+        throw new Error(
+          "REFURBISHED_CONFIGURATION_REQUIRED"
+        );
+      }
+
+      /*
+       * Exact grade prices live on product_variants, so a
+       * refurbished checkout must resolve a real variant.
+       */
+      if (
+        requestedCondition ===
+          "refurbished" &&
+        !variantId
+      ) {
+        throw new Error(
+          "REFURBISHED_VARIANT_REQUIRED"
+        );
+      }
+
       const result =
         await createOrder({
           customerName:
@@ -1536,6 +2137,32 @@ export default function CheckoutScreen() {
 
           condition:
             requestedCondition,
+
+          /*
+           * Selection identifiers only.
+           *
+           * The Edge Function will independently:
+           *
+           * 1. Read the exact cosmetic-grade price from
+           *    Supabase.
+           *
+           * 2. Add exactly €89 when batteryGrade === "new".
+           *
+           * 3. Calculate authoritative destination shipping.
+           *
+           * 4. Calculate the final bank-transfer amount.
+           */
+          refurbishedGrade:
+            requestedCondition ===
+              "refurbished"
+              ? requestedRefurbishedGrade
+              : null,
+
+          batteryGrade:
+            requestedCondition ===
+              "refurbished"
+              ? requestedBatteryGrade
+              : null,
 
           quantity:
             orderItem
@@ -1580,7 +2207,16 @@ export default function CheckoutScreen() {
         errorCode ===
         "PRODUCT_REQUIRED"
           ? text.missingDatabaseProduct
-          : text.orderFailed;
+          : errorCode ===
+                "REFURBISHED_CONFIGURATION_REQUIRED" ||
+              errorCode ===
+                "REFURBISHED_GRADE_REQUIRED" ||
+              errorCode ===
+                "BATTERY_GRADE_REQUIRED" ||
+              errorCode ===
+                "REFURBISHED_VARIANT_REQUIRED"
+            ? text.missingRefurbishedConfiguration
+            : text.orderFailed;
 
       const message =
         `${baseMessage} (${errorCode})`;
@@ -1593,6 +2229,583 @@ export default function CheckoutScreen() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  /* =======================================================
+     PAYPAL SUCCESS
+  ======================================================= */
+
+  if (
+    completedPayPalOrder
+  ) {
+    const paypalCurrency =
+      completedPayPalOrder
+        .currency ??
+      "EUR";
+
+    const paypalTotal =
+      completedPayPalOrder
+        .total ??
+      completedPayPalOrder
+        .amount ??
+      0;
+
+    const paypalSubtotal =
+      completedPayPalOrder
+        .subtotal;
+
+    const paypalShipping =
+      completedPayPalOrder
+        .shipping;
+
+    const formattedPayPalTotal =
+      formatOrderPrice(
+        paypalTotal,
+        paypalCurrency,
+        language
+      );
+
+    const formattedPayPalSubtotal =
+      paypalSubtotal !==
+        null
+        ? formatOrderPrice(
+            paypalSubtotal,
+            paypalCurrency,
+            language
+          )
+        : null;
+
+    const formattedPayPalShipping =
+      paypalShipping !==
+        null
+        ? formatOrderPrice(
+            paypalShipping,
+            paypalCurrency,
+            language
+          )
+        : null;
+
+    const hasDisplayEquivalent =
+      completedPayPalOrder
+        .displayCurrency &&
+      completedPayPalOrder
+        .displayCurrency !==
+        paypalCurrency &&
+      completedPayPalOrder
+        .displayTotal !==
+        null;
+
+    const formattedDisplayTotal =
+      hasDisplayEquivalent &&
+      completedPayPalOrder
+        .displayCurrency &&
+      completedPayPalOrder
+        .displayTotal !==
+        null
+        ? formatOrderPrice(
+            completedPayPalOrder
+              .displayTotal,
+            completedPayPalOrder
+              .displayCurrency,
+            language
+          )
+        : null;
+
+    const paypalExchangeRateText =
+      completedPayPalOrder
+        .displayCurrency ===
+        "CVE" &&
+      completedPayPalOrder
+        .exchangeRate !==
+        null
+        ? `1 EUR = ${completedPayPalOrder.exchangeRate} CVE`
+        : null;
+
+    const customerProvidedEmail =
+      Boolean(
+        customer.email.trim()
+      );
+
+    return (
+      <ScrollView
+        style={
+          styles.screen
+        }
+        contentContainerStyle={[
+          styles.content,
+
+          isMobile &&
+            styles.contentMobile,
+        ]}
+      >
+        <View
+          style={[
+            styles.header,
+
+            isMobile &&
+              styles.headerMobile,
+          ]}
+        >
+          <Link
+            href={
+              "/" as any
+            }
+            asChild
+          >
+            <Pressable>
+              <Text
+                style={[
+                  styles.back,
+
+                  isMobile &&
+                    styles.backMobile,
+                ]}
+              >
+                ← {text.backHome}
+              </Text>
+            </Pressable>
+          </Link>
+
+          <Text
+            style={[
+              styles.logo,
+
+              isMobile &&
+                styles.logoMobile,
+            ]}
+          >
+            POKAPOK
+          </Text>
+        </View>
+
+        <View
+          style={[
+            styles.successBox,
+
+            isMobile &&
+              styles.successBoxMobile,
+          ]}
+        >
+          <Text
+            style={
+              styles.successKicker
+            }
+          >
+            {
+              text.paypalPaymentConfirmed
+            }
+          </Text>
+
+          <Text
+            style={[
+              styles.successTitle,
+
+              isMobile &&
+                styles.successTitleMobile,
+            ]}
+          >
+            {
+              text.paypalPaymentConfirmedTitle
+            }
+          </Text>
+
+          <Text
+            style={[
+              styles.successText,
+
+              isMobile &&
+                styles.successTextMobile,
+            ]}
+          >
+            {
+              text.paypalPaymentConfirmedDescription
+            }
+          </Text>
+
+          <View
+            style={
+              styles.paypalPaidBadge
+            }
+          >
+            <Text
+              style={
+                styles.paypalPaidBadgeText
+              }
+            >
+              {text.paid}
+            </Text>
+          </View>
+
+          <View
+            style={[
+              styles.successGrid,
+
+              isMobile &&
+                styles.successGridMobile,
+            ]}
+          >
+            {completedPayPalOrder
+              .orderNumber ? (
+              <View
+                style={[
+                  styles.successInfoCard,
+
+                  isMobile &&
+                    styles.successInfoCardMobile,
+                ]}
+              >
+                <Text
+                  style={
+                    styles.successInfoLabel
+                  }
+                >
+                  {text.orderNumber}
+                </Text>
+
+                <Text
+                  selectable
+                  style={
+                    styles.successInfoValue
+                  }
+                >
+                  {
+                    completedPayPalOrder
+                      .orderNumber
+                  }
+                </Text>
+              </View>
+            ) : null}
+
+            <View
+              style={[
+                styles.successInfoCard,
+
+                isMobile &&
+                  styles.successInfoCardMobile,
+              ]}
+            >
+              <Text
+                style={
+                  styles.successInfoLabel
+                }
+              >
+                {text.totalPaid}
+              </Text>
+
+              <Text
+                style={
+                  styles.successAmount
+                }
+              >
+                {
+                  formattedPayPalTotal
+                }
+              </Text>
+            </View>
+
+            <View
+              style={[
+                styles.successInfoCard,
+
+                isMobile &&
+                  styles.successInfoCardMobile,
+              ]}
+            >
+              <Text
+                style={
+                  styles.successInfoLabel
+                }
+              >
+                {
+                  text.paymentMethod
+                }
+              </Text>
+
+              <Text
+                style={
+                  styles.successInfoValue
+                }
+              >
+                PayPal
+              </Text>
+            </View>
+
+            {formattedDisplayTotal ? (
+              <View
+                style={[
+                  styles.successInfoCard,
+
+                  isMobile &&
+                    styles.successInfoCardMobile,
+                ]}
+              >
+                <Text
+                  style={
+                    styles.successInfoLabel
+                  }
+                >
+                  {
+                    text.displayEquivalent
+                  }
+                </Text>
+
+                <Text
+                  style={
+                    styles.successAmount
+                  }
+                >
+                  {
+                    formattedDisplayTotal
+                  }
+                </Text>
+
+                {paypalExchangeRateText ? (
+                  <Text
+                    style={
+                      styles.successInfoHelper
+                    }
+                  >
+                    {
+                      text.exchangeRate
+                    }
+                    :{" "}
+                    {
+                      paypalExchangeRateText
+                    }
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+
+          {formattedPayPalSubtotal !==
+            null ||
+          formattedPayPalShipping !==
+            null ? (
+            <View
+              style={
+                styles.paypalPaymentSummary
+              }
+            >
+              {formattedPayPalSubtotal !==
+              null ? (
+                <View
+                  style={
+                    styles.paypalPaymentSummaryRow
+                  }
+                >
+                  <Text
+                    style={
+                      styles.paypalPaymentSummaryLabel
+                    }
+                  >
+                    {text.subtotal}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.paypalPaymentSummaryValue
+                    }
+                  >
+                    {
+                      formattedPayPalSubtotal
+                    }
+                  </Text>
+                </View>
+              ) : null}
+
+              {formattedPayPalShipping !==
+              null ? (
+                <View
+                  style={
+                    styles.paypalPaymentSummaryRow
+                  }
+                >
+                  <Text
+                    style={
+                      styles.paypalPaymentSummaryLabel
+                    }
+                  >
+                    {text.shipping}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.paypalPaymentSummaryValue
+                    }
+                  >
+                    {
+                      formattedPayPalShipping
+                    }
+                  </Text>
+                </View>
+              ) : null}
+
+              <View
+                style={
+                  styles.paypalPaymentSummaryDivider
+                }
+              />
+
+              <View
+                style={
+                  styles.paypalPaymentSummaryRow
+                }
+              >
+                <Text
+                  style={
+                    styles.paypalPaymentSummaryTotalLabel
+                  }
+                >
+                  {text.totalPaid}
+                </Text>
+
+                <Text
+                  style={
+                    styles.paypalPaymentSummaryTotalValue
+                  }
+                >
+                  {
+                    formattedPayPalTotal
+                  }
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          <View
+            style={
+              styles.referenceBox
+            }
+          >
+            <Text
+              style={
+                styles.referenceLabel
+              }
+            >
+              {
+                text.paypalReference
+              }
+            </Text>
+
+            <Text
+              selectable
+              style={
+                styles.referenceValue
+              }
+            >
+              {
+                completedPayPalOrder
+                  .captureId
+              }
+            </Text>
+
+            <Text
+              style={
+                styles.referenceHelp
+              }
+            >
+              PayPal Order ID:{" "}
+              {
+                completedPayPalOrder
+                  .paypalOrderId
+              }
+            </Text>
+          </View>
+
+          <View
+            style={
+              styles.paypalProcessingBox
+            }
+          >
+            <Text
+              style={
+                styles.paypalProcessingTitle
+              }
+            >
+              {text.processing}
+            </Text>
+
+            <Text
+              style={
+                styles.paypalProcessingText
+              }
+            >
+              {
+                language ===
+                  "pt"
+                  ? "A sua encomenda está paga e seguirá agora para preparação e envio."
+                  : "Your order is paid and will now move to preparation and shipping."
+              }
+            </Text>
+          </View>
+
+          <View
+            style={[
+              styles.emailNotice,
+
+              customerProvidedEmail &&
+                !completedPayPalOrder
+                  .emailSent &&
+                styles.emailNoticeWarning,
+            ]}
+          >
+            <Text
+              style={
+                styles.emailNoticeText
+              }
+            >
+              {!customerProvidedEmail
+                ? text.paypalEmailNotProvided
+                : completedPayPalOrder
+                      .emailSent
+                  ? text.paypalEmailSent
+                  : text.paypalEmailNotSent}
+            </Text>
+
+            {completedPayPalOrder
+              .warning ? (
+              <Text
+                style={
+                  styles.paypalWarningText
+                }
+              >
+                {
+                  completedPayPalOrder
+                    .warning
+                }
+              </Text>
+            ) : null}
+          </View>
+
+          <Link
+            href={
+              "/catalog" as any
+            }
+            asChild
+          >
+            <Pressable
+              style={[
+                styles.primaryButton,
+
+                isMobile &&
+                  styles.primaryButtonMobile,
+              ]}
+            >
+              <Text
+                style={
+                  styles.primaryButtonText
+                }
+              >
+                {
+                  text.browseMorePhones
+                }
+              </Text>
+            </Pressable>
+          </Link>
+        </View>
+      </ScrollView>
+    );
   }
 
   /* =======================================================
@@ -2106,9 +3319,7 @@ export default function CheckoutScreen() {
               styles.emptyKicker
             }
           >
-            {
-              text.noProductSelected
-            }
+            {text.noProductSelected}
           </Text>
 
           <Text
@@ -2116,9 +3327,7 @@ export default function CheckoutScreen() {
               styles.emptyTitle
             }
           >
-            {
-              text.checkoutEmpty
-            }
+            {text.checkoutEmpty}
           </Text>
 
           <Text
@@ -2126,9 +3335,7 @@ export default function CheckoutScreen() {
               styles.emptyText
             }
           >
-            {
-              text.checkoutEmptyDescription
-            }
+            {text.checkoutEmptyDescription}
           </Text>
 
           <Link
@@ -2145,9 +3352,7 @@ export default function CheckoutScreen() {
                   styles.primaryButtonText
                 }
               >
-                {
-                  text.browsePhones
-                }
+                {text.browsePhones}
               </Text>
             </Pressable>
           </Link>
@@ -2744,59 +3949,309 @@ export default function CheckoutScreen() {
           <View
             style={[
               styles.inputRow,
+              styles.dropdownRow,
               isMobile &&
                 styles.inputRowMobile,
             ]}
           >
-            <TextInput
-              value={customer.country}
-              onChangeText={(value) =>
-                updateCustomer(
-                  "country",
-                  value
-                )
-              }
-              placeholder={
-                text.country
-              }
-              placeholderTextColor={
-                colors.ink40
-              }
-              autoCapitalize="words"
+            <View
               style={[
-                styles.input,
+                styles.dropdownWrapper,
                 styles.inputHalf,
-                isMobile &&
-                  styles.inputMobile,
-                isMobile &&
-                  styles.inputHalfMobile,
-              ]}
-            />
 
-            <TextInput
-              value={customer.stateRegion}
-              onChangeText={(value) =>
-                updateCustomer(
-                  "stateRegion",
-                  value
-                )
-              }
-              placeholder={
-                text.stateRegion
-              }
-              placeholderTextColor={
-                colors.ink40
-              }
-              autoCapitalize="words"
-              style={[
-                styles.input,
-                styles.inputHalf,
-                isMobile &&
-                  styles.inputMobile,
+                countryDropdownOpen &&
+                  styles.dropdownWrapperOpen,
+
                 isMobile &&
                   styles.inputHalfMobile,
               ]}
-            />
+            >
+              <Pressable
+                onPress={() => {
+                  setCountryDropdownOpen(
+                    (current) =>
+                      !current
+                  );
+
+                  setIslandDropdownOpen(
+                    false
+                  );
+                }}
+                style={[
+                  styles.input,
+                  styles.dropdownButton,
+
+                  isMobile &&
+                    styles.inputMobile,
+                ]}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={
+                    selectedCountryDisplay
+                      ? styles.dropdownButtonText
+                      : styles.dropdownPlaceholder
+                  }
+                >
+                  {selectedCountryDisplay ||
+                    text.country}
+                </Text>
+
+                <Text
+                  style={[
+                    styles.dropdownArrow,
+
+                    countryDropdownOpen &&
+                      styles.dropdownArrowOpen,
+                  ]}
+                >
+                  ▾
+                </Text>
+              </Pressable>
+
+              {countryDropdownOpen ? (
+                <ScrollView
+                  style={[
+                    styles.dropdownMenu,
+
+                    isMobile &&
+                      styles.dropdownMenuMobile,
+                  ]}
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator
+                >
+                  {SHIPPING_COUNTRIES.map(
+                    (country) => {
+                      const label =
+                        language ===
+                        "pt"
+                          ? country.pt
+                          : country.en;
+
+                      const active =
+                        customer.country ===
+                        country.value;
+
+                      return (
+                        <Pressable
+                          key={
+                            country.value
+                          }
+                          onPress={() => {
+                            updateCustomer(
+                              "country",
+                              country.value
+                            );
+
+                            updateCustomer(
+                              "stateRegion",
+                              ""
+                            );
+
+                            setCountryDropdownOpen(
+                              false
+                            );
+
+                            setIslandDropdownOpen(
+                              false
+                            );
+                          }}
+                          style={[
+                            styles.dropdownItem,
+
+                            active &&
+                              styles.dropdownItemActive,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.dropdownItemText,
+
+                              active &&
+                                styles.dropdownItemTextActive,
+                            ]}
+                          >
+                            {label}
+                          </Text>
+
+                          {active ? (
+                            <Text
+                              style={
+                                styles.dropdownCheck
+                              }
+                            >
+                              ✓
+                            </Text>
+                          ) : null}
+                        </Pressable>
+                      );
+                    }
+                  )}
+                </ScrollView>
+              ) : null}
+            </View>
+
+            {customer.country ===
+            "Cabo Verde" ? (
+              <View
+                style={[
+                  styles.dropdownWrapper,
+                  styles.inputHalf,
+
+                  islandDropdownOpen &&
+                    styles.dropdownWrapperOpen,
+
+                  isMobile &&
+                    styles.inputHalfMobile,
+                ]}
+              >
+                <Pressable
+                  onPress={() => {
+                    setIslandDropdownOpen(
+                      (current) =>
+                        !current
+                    );
+
+                    setCountryDropdownOpen(
+                      false
+                    );
+                  }}
+                  style={[
+                    styles.input,
+                    styles.dropdownButton,
+
+                    isMobile &&
+                      styles.inputMobile,
+                  ]}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={
+                      customer.stateRegion
+                        ? styles.dropdownButtonText
+                        : styles.dropdownPlaceholder
+                    }
+                  >
+                    {customer.stateRegion ||
+                      text.stateRegion}
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.dropdownArrow,
+
+                      islandDropdownOpen &&
+                        styles.dropdownArrowOpen,
+                    ]}
+                  >
+                    ▾
+                  </Text>
+                </Pressable>
+
+                {islandDropdownOpen ? (
+                  <ScrollView
+                    style={[
+                      styles.dropdownMenu,
+
+                      isMobile &&
+                        styles.dropdownMenuMobile,
+                    ]}
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator
+                  >
+                    {CABO_VERDE_ISLANDS.map(
+                      (island) => {
+                        const active =
+                          customer.stateRegion ===
+                          island;
+
+                        return (
+                          <Pressable
+                            key={
+                              island
+                            }
+                            onPress={() => {
+                              updateCustomer(
+                                "stateRegion",
+                                island
+                              );
+
+                              setIslandDropdownOpen(
+                                false
+                              );
+                            }}
+                            style={[
+                              styles.dropdownItem,
+
+                              active &&
+                                styles.dropdownItemActive,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.dropdownItemText,
+
+                                active &&
+                                  styles.dropdownItemTextActive,
+                              ]}
+                            >
+                              {island}
+                            </Text>
+
+                            {active ? (
+                              <Text
+                                style={
+                                  styles.dropdownCheck
+                                }
+                              >
+                                ✓
+                              </Text>
+                            ) : null}
+                          </Pressable>
+                        );
+                      }
+                    )}
+                  </ScrollView>
+                ) : null}
+              </View>
+            ) : (
+              <TextInput
+                value={
+                  customer.stateRegion
+                }
+                onChangeText={(value) =>
+                  updateCustomer(
+                    "stateRegion",
+                    value
+                  )
+                }
+                placeholder={
+                  text.stateRegion
+                }
+                placeholderTextColor={
+                  colors.ink40
+                }
+                autoCapitalize="words"
+                editable={
+                  Boolean(
+                    customer.country
+                  )
+                }
+                style={[
+                  styles.input,
+                  styles.inputHalf,
+
+                  !customer.country &&
+                    styles.inputDisabled,
+
+                  isMobile &&
+                    styles.inputMobile,
+
+                  isMobile &&
+                    styles.inputHalfMobile,
+                ]}
+              />
+            )}
           </View>
 
           <View
@@ -3050,25 +4505,115 @@ export default function CheckoutScreen() {
 
               {totalBuyNow > 0 ? (
                 <>
-                  <Text
+                  <View
                     style={
-                      styles.price
+                      styles.summaryPriceRow
                     }
                   >
-                    {formatPrice(
-                      totalBuyNow
-                    )}
-                  </Text>
+                    <Text
+                      style={
+                        styles.summaryPriceLabel
+                      }
+                    >
+                      {text.subtotal}
+                    </Text>
 
-                  <Text
+                    <Text
+                      style={
+                        styles.summaryPriceValue
+                      }
+                    >
+                      {formatPrice(
+                        totalBuyNow
+                      )}
+                    </Text>
+                  </View>
+
+                  {hasShippingDestination ? (
+                    <View
+                      style={
+                        styles.summaryPriceRow
+                      }
+                    >
+                      <View
+                        style={
+                          styles.summaryPriceLabelColumn
+                        }
+                      >
+                        <Text
+                          style={
+                            styles.summaryPriceLabel
+                          }
+                        >
+                          {
+                            text.shipping
+                          }
+                        </Text>
+
+                        <Text
+                          style={
+                            styles.shippingDestination
+                          }
+                        >
+                          {
+                            selectedCountryDisplay
+                          }
+                        </Text>
+                      </View>
+
+                      <Text
+                        style={
+                          styles.summaryPriceValue
+                        }
+                      >
+                        {formatPrice(
+                          shippingPrice
+                        )}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text
+                      style={
+                        styles.shippingPending
+                      }
+                    >
+                      {
+                        text.shippingPending
+                      }
+                    </Text>
+                  )}
+
+                  <View
                     style={
-                      styles.priceSub
+                      styles.totalDivider
+                    }
+                  />
+
+                  <View
+                    style={
+                      styles.summaryPriceRow
                     }
                   >
-                    {
-                      text.oneTimeTotal
-                    }
-                  </Text>
+                    <Text
+                      style={
+                        styles.totalLabel
+                      }
+                    >
+                      {
+                        text.totalWithShipping
+                      }
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.price
+                      }
+                    >
+                      {formatPrice(
+                        finalOneTimeDisplayTotal
+                      )}
+                    </Text>
+                  </View>
                 </>
               ) : null}
 
@@ -3131,25 +4676,115 @@ export default function CheckoutScreen() {
               {paymentMode ===
               "buy" ? (
                 <>
-                  <Text
+                  <View
                     style={
-                      styles.price
+                      styles.summaryPriceRow
                     }
                   >
-                    {formatPrice(
-                      unitPrice
-                    )}
-                  </Text>
+                    <Text
+                      style={
+                        styles.summaryPriceLabel
+                      }
+                    >
+                      {text.subtotal}
+                    </Text>
 
-                  <Text
+                    <Text
+                      style={
+                        styles.summaryPriceValue
+                      }
+                    >
+                      {formatPrice(
+                        unitPrice
+                      )}
+                    </Text>
+                  </View>
+
+                  {hasShippingDestination ? (
+                    <View
+                      style={
+                        styles.summaryPriceRow
+                      }
+                    >
+                      <View
+                        style={
+                          styles.summaryPriceLabelColumn
+                        }
+                      >
+                        <Text
+                          style={
+                            styles.summaryPriceLabel
+                          }
+                        >
+                          {
+                            text.shipping
+                          }
+                        </Text>
+
+                        <Text
+                          style={
+                            styles.shippingDestination
+                          }
+                        >
+                          {
+                            selectedCountryDisplay
+                          }
+                        </Text>
+                      </View>
+
+                      <Text
+                        style={
+                          styles.summaryPriceValue
+                        }
+                      >
+                        {formatPrice(
+                          shippingPrice
+                        )}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text
+                      style={
+                        styles.shippingPending
+                      }
+                    >
+                      {
+                        text.shippingPending
+                      }
+                    </Text>
+                  )}
+
+                  <View
                     style={
-                      styles.priceSub
+                      styles.totalDivider
+                    }
+                  />
+
+                  <View
+                    style={
+                      styles.summaryPriceRow
                     }
                   >
-                    {
-                      text.oneTimeBuyRequest
-                    }
-                  </Text>
+                    <Text
+                      style={
+                        styles.totalLabel
+                      }
+                    >
+                      {
+                        text.totalWithShipping
+                      }
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.price
+                      }
+                    >
+                      {formatPrice(
+                        finalOneTimeDisplayTotal
+                      )}
+                    </Text>
+                  </View>
                 </>
               ) : (
                 <>
@@ -3398,6 +5033,144 @@ export default function CheckoutScreen() {
           </View>
         </Pressable>
 
+        {selectedPaymentMethod ===
+        "paypal" ? (
+          <View
+            style={
+              styles.paypalCheckoutBox
+            }
+          >
+            {paypalProductId ? (
+              <PayPalCheckout
+                productId={
+                  paypalProductId
+                }
+                variantId={
+                  paypalVariantId
+                }
+                condition={
+                  paypalCondition
+                }
+                quantity={
+                  paypalQuantity
+                }
+
+                refurbishedGrade={
+                  paypalRefurbishedGrade
+                }
+
+                batteryGrade={
+                  paypalBatteryGrade
+                }
+
+                customerName={
+                  customer.name
+                }
+                customerEmail={
+                  customer.email
+                }
+                customerWhatsapp={
+                  customer.whatsapp
+                }
+
+                country={
+                  customer.country
+                }
+                stateRegion={
+                  customer.stateRegion
+                }
+                city={
+                  customer.city
+                }
+                street={
+                  customer.street
+                }
+                houseNumber={
+                  customer.houseNumber
+                }
+                addressLine2={
+                  customer.addressLine2
+                }
+                postalCode={
+                  customer.postalCode
+                }
+
+                notes={
+                  customer.notes
+                }
+
+                language={
+                  language
+                }
+
+                displayCurrency={
+                  currency
+                }
+
+                onBeforeStart={() =>
+                  validateCustomerDetails()
+                }
+                onSuccess={(
+                  result:
+                    PayPalCheckoutSuccessResult
+                ) => {
+                  console.log(
+                    "POKAPOK PAYPAL PAYMENT COMPLETED:",
+                    result
+                  );
+
+                  setSubmitError(
+                    null
+                  );
+
+                  setCompletedPayPalOrder(
+                    result
+                  );
+
+                  if (
+                    cartHasItems
+                  ) {
+                    clearCart();
+                  }
+                }}
+                onCancel={() => {
+                  console.log(
+                    "PayPal payment cancelled"
+                  );
+                }}
+                onError={(
+                  error: Error
+                ) => {
+                  console.error(
+                    "PayPal checkout error:",
+                    error
+                  );
+
+                  const message =
+                    language ===
+                      "pt"
+                      ? "Não foi possível concluir o pagamento PayPal."
+                      : "We could not complete the PayPal payment.";
+
+                  setSubmitError(
+                    message
+                  );
+                }}
+              />
+            ) : (
+              <Text
+                style={
+                  styles.paypalErrorText
+                }
+              >
+                {
+                  text.missingDatabaseProduct
+                }
+              </Text>
+            )}
+          </View>
+        ) : null}
+
         <Pressable
           onPress={() =>
             selectPaymentMethod(
@@ -3584,27 +5357,36 @@ export default function CheckoutScreen() {
           </View>
         ) : null}
 
-        <Pressable
-          style={[
-            styles.submitButton,
-            isMobile &&
-              styles.submitButtonMobile,
-            submitting &&
-              styles.submitButtonDisabled,
-          ]}
-          onPress={submitRequest}
-          disabled={submitting}
-        >
-          <Text
-            style={
-              styles.submitButtonText
+        {selectedPaymentMethod !==
+        "paypal" ? (
+          <Pressable
+            style={[
+              styles.submitButton,
+
+              isMobile &&
+                styles.submitButtonMobile,
+
+              submitting &&
+                styles.submitButtonDisabled,
+            ]}
+            onPress={
+              submitRequest
+            }
+            disabled={
+              submitting
             }
           >
-            {submitting
-              ? text.creatingOrder
-              : text.submitOrder}
-          </Text>
-        </Pressable>
+            <Text
+              style={
+                styles.submitButtonText
+              }
+            >
+              {submitting
+                ? text.creatingOrder
+                : text.submitOrder}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </ScrollView>
   );
@@ -4041,6 +5823,119 @@ const styles = StyleSheet.create({
     minWidth: 150,
   },
 
+  inputDisabled: {
+    opacity: 0.5,
+  },
+
+  dropdownRow: {
+    position: "relative",
+    zIndex: 40,
+  },
+
+  dropdownWrapper: {
+    position: "relative",
+    zIndex: 40,
+  },
+
+  dropdownWrapperOpen: {
+    zIndex: 999,
+  },
+
+  dropdownButton: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  dropdownButtonText: {
+    flex: 1,
+    color: colors.ink,
+    fontSize: 16,
+  },
+
+  dropdownPlaceholder: {
+    flex: 1,
+    color: colors.ink40,
+    fontSize: 16,
+  },
+
+  dropdownArrow: {
+    marginLeft: 10,
+    color: colors.ink40,
+    fontSize: 16,
+    lineHeight: 18,
+  },
+
+  dropdownArrowOpen: {
+    transform: [
+      {
+        rotate: "180deg",
+      },
+    ],
+  },
+
+  dropdownMenu: {
+    position: "absolute",
+    top: 60,
+    left: 0,
+    right: 0,
+    maxHeight: 280,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.ink12,
+    borderRadius: 16,
+    zIndex: 9999,
+
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 18,
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+  },
+
+  dropdownMenuMobile: {
+    top: 51,
+    maxHeight: 240,
+    borderRadius: 14,
+  },
+
+  dropdownItem: {
+    minHeight: 48,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.ink12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  dropdownItemActive: {
+    backgroundColor: colors.blueLt,
+  },
+
+  dropdownItemText: {
+    flex: 1,
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  dropdownItemTextActive: {
+    color: colors.blue,
+    fontWeight: "900",
+  },
+
+  dropdownCheck: {
+    marginLeft: 12,
+    color: colors.blue,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+
   notes: {
     minHeight: 90,
     paddingTop: 14,
@@ -4097,6 +5992,58 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.62)",
     marginTop: 3,
     fontSize: 12,
+  },
+
+  summaryPriceRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
+    paddingVertical: 6,
+  },
+
+  summaryPriceLabelColumn: {
+    flex: 1,
+  },
+
+  summaryPriceLabel: {
+    color: "rgba(255,255,255,0.68)",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  summaryPriceValue: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+
+  shippingDestination: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 10,
+    marginTop: 2,
+  },
+
+  shippingPending: {
+    color: "rgba(255,255,255,0.52)",
+    fontSize: 11,
+    lineHeight: 16,
+    paddingVertical: 7,
+  },
+
+  totalDivider: {
+    width: "100%",
+    height: 1,
+    backgroundColor:
+      "rgba(255,255,255,0.14)",
+    marginVertical: 8,
+  },
+
+  totalLabel: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: "900",
   },
 
   divider: {
@@ -4295,6 +6242,24 @@ const styles = StyleSheet.create({
     color: "#173B76",
     fontSize: 17,
     fontWeight: "900",
+  },
+
+  paypalCheckoutBox: {
+    width: "100%",
+    marginTop: 4,
+    marginBottom: 12,
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: "#FAFCFF",
+    borderWidth: 1,
+    borderColor: colors.ink12,
+  },
+
+  paypalErrorText: {
+    color: "#9B1C1C",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
   },
 
   bankLogo: {
@@ -4735,5 +6700,214 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     marginTop: 7,
+  },
+
+  paypalPaidBadge: {
+    alignSelf:
+      "flex-start",
+
+    marginTop:
+      14,
+
+    paddingHorizontal:
+      11,
+
+    paddingVertical:
+      6,
+
+    borderRadius:
+      999,
+
+    backgroundColor:
+      "#EFFAF2",
+
+    borderWidth:
+      1,
+
+    borderColor:
+      "#CBE8D1",
+  },
+
+  paypalPaidBadgeText: {
+    color:
+      "#147A36",
+
+    fontWeight:
+      "900",
+
+    fontSize:
+      10,
+
+    letterSpacing:
+      0.6,
+
+    textTransform:
+      "uppercase",
+  },
+
+  paypalPaymentSummary: {
+    marginTop:
+      16,
+
+    padding:
+      20,
+
+    borderRadius:
+      20,
+
+    backgroundColor:
+      "#FAFAF8",
+
+    borderWidth:
+      1,
+
+    borderColor:
+      colors.ink12,
+  },
+
+  paypalPaymentSummaryRow: {
+    width:
+      "100%",
+
+    flexDirection:
+      "row",
+
+    alignItems:
+      "center",
+
+    justifyContent:
+      "space-between",
+
+    gap:
+      16,
+
+    paddingVertical:
+      7,
+  },
+
+  paypalPaymentSummaryLabel: {
+    color:
+      colors.ink70,
+
+    fontSize:
+      13,
+
+    fontWeight:
+      "700",
+  },
+
+  paypalPaymentSummaryValue: {
+    color:
+      colors.ink,
+
+    fontSize:
+      14,
+
+    fontWeight:
+      "900",
+  },
+
+  paypalPaymentSummaryDivider: {
+    width:
+      "100%",
+
+    height:
+      1,
+
+    backgroundColor:
+      colors.ink12,
+
+    marginVertical:
+      8,
+  },
+
+  paypalPaymentSummaryTotalLabel: {
+    color:
+      colors.ink,
+
+    fontSize:
+      15,
+
+    fontWeight:
+      "900",
+  },
+
+  paypalPaymentSummaryTotalValue: {
+    color:
+      colors.ink,
+
+    fontSize:
+      21,
+
+    fontWeight:
+      "900",
+
+    letterSpacing:
+      -0.5,
+  },
+
+  paypalProcessingBox: {
+    marginTop:
+      16,
+
+    padding:
+      18,
+
+    borderRadius:
+      18,
+
+    backgroundColor:
+      colors.blueLt,
+
+    borderWidth:
+      1,
+
+    borderColor:
+      colors.blue,
+  },
+
+  paypalProcessingTitle: {
+    color:
+      colors.blue,
+
+    fontSize:
+      13,
+
+    fontWeight:
+      "900",
+
+    textTransform:
+      "uppercase",
+
+    letterSpacing:
+      0.7,
+  },
+
+  paypalProcessingText: {
+    color:
+      colors.ink70,
+
+    fontSize:
+      12,
+
+    lineHeight:
+      18,
+
+    marginTop:
+      5,
+  },
+
+  paypalWarningText: {
+    color:
+      "#8A5A00",
+
+    fontSize:
+      10,
+
+    lineHeight:
+      15,
+
+    marginTop:
+      5,
   },
 });

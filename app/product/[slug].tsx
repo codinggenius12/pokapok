@@ -2331,74 +2331,105 @@ export default function ProductScreen() {
      BUILD CART ITEM
   ======================================================= */
 
-  function buildCartItem() {
-    if (
-      !selectedAvailable ||
-      !selectedVariant ||
-      databaseActivePrice ===
-        null
-    ) {
-      return null;
-    }
+  /* =======================================================
+   BUILD CART ITEM
+======================================================= */
 
-    const baseMonthlyPrice =
-      paymentMode ===
-      "lease"
-        ? leasePrice ?? 0
-        : paymentMode ===
-            "installments"
-          ? financingPrice ?? 0
-          : 0;
+function buildCartItem() {
+  if (
+    !selectedAvailable ||
+    !selectedVariant ||
+    databaseActivePrice ===
+      null
+  ) {
+    return null;
+  }
 
-    const insuranceRecurringPrice =
-      insurance &&
-      insuranceMonthlyPrice !==
-        null
-        ? insuranceMonthlyPrice
+  const baseMonthlyPrice =
+    paymentMode ===
+    "lease"
+      ? leasePrice ?? 0
+      : paymentMode ===
+          "installments"
+        ? financingPrice ?? 0
         : 0;
 
-    const finalMonthlyPrice =
-      safeMoney(
-        baseMonthlyPrice +
-          insuranceRecurringPrice
-      );
+  const insuranceRecurringPrice =
+    insurance &&
+    insuranceMonthlyPrice !==
+      null
+      ? insuranceMonthlyPrice
+      : 0;
 
-    return {
-      id:
-        `${selectedProduct.id}-${selectedVariant.id}-${selectedCondition}-${batteryGrade}-${refurbishedGrade}-${Date.now()}`,
+  const finalMonthlyPrice =
+    safeMoney(
+      baseMonthlyPrice +
+        insuranceRecurringPrice
+    );
 
-      productId:
-        selectedProduct.id,
+  return {
+    id:
+      `${selectedProduct.id}-${selectedVariant.id}-${selectedCondition}-${batteryGrade}-${refurbishedGrade}-${Date.now()}`,
 
-      variantId:
-        selectedVariant.id,
+    productId:
+      selectedProduct.id,
 
-      phone:
-        cartPhone,
+    variantId:
+      selectedVariant.id,
 
-      colorName:
-        selectedColorName ||
-        text.default,
+    phone:
+      cartPhone,
 
-      storageLabel:
-        cartStorageLabel ||
-        text.default,
+    colorName:
+      selectedColorName ||
+      text.default,
 
-      paymentMode,
+    storageLabel:
+      cartStorageLabel ||
+      text.default,
 
-      months,
+    paymentMode,
 
-      insurance,
+    months,
 
-      unitPrice,
+    insurance,
 
-      monthlyPrice:
-        finalMonthlyPrice,
+    unitPrice,
 
-      quantity:
-        1,
-    };
-  }
+    monthlyPrice:
+      finalMonthlyPrice,
+
+    quantity:
+      1,
+
+    /*
+     * Exact refurbished configuration.
+     *
+     * These values are carried to checkout so the
+     * backend can independently calculate and verify
+     * the correct Supabase cosmetic-grade price.
+     */
+    refurbishedGrade:
+      selectedCondition ===
+      "refurbished"
+        ? refurbishedGrade
+        : null,
+
+    /*
+     * "new" does NOT mean the browser may decide
+     * the +€89 charge.
+     *
+     * It only tells the backend which option the
+     * customer selected. The server will independently
+     * apply the fixed +€89 surcharge.
+     */
+    batteryGrade:
+      selectedCondition ===
+      "refurbished"
+        ? batteryGrade
+        : null,
+  };
+}
 
   /* =======================================================
      ADD TO CART

@@ -3,6 +3,16 @@ import type {
   Phone,
 } from "./phone";
 
+export type RefurbishedGrade =
+  | "correct"
+  | "good"
+  | "excellent"
+  | "premium";
+
+export type BatteryGrade =
+  | "optimal"
+  | "new";
+
 export type CartItem = {
   id: string;
 
@@ -41,4 +51,21 @@ export type CartItem = {
   monthlyPrice: number;
 
   quantity: number;
+
+  /* =======================================================
+     REFURBISHED CONFIGURATION
+
+     These values describe the exact refurbished options
+     selected by the customer.
+
+     They are null for non-refurbished products.
+  ======================================================= */
+
+  refurbishedGrade:
+    | RefurbishedGrade
+    | null;
+
+  batteryGrade:
+    | BatteryGrade
+    | null;
 };

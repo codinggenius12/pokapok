@@ -12,6 +12,16 @@ export type OrderCondition =
   | "new"
   | "refurbished";
 
+export type OrderRefurbishedGrade =
+  | "correct"
+  | "good"
+  | "excellent"
+  | "premium";
+
+export type OrderBatteryGrade =
+  | "optimal"
+  | "new";
+
 export type OrderPaymentMethod =
   | "bank_transfer";
 
@@ -38,21 +48,43 @@ export type OrderDisplayCurrency =
 
    Prices are intentionally NOT included.
 
-   The frontend sends identifiers, customer information and
-   the customer's preferred DISPLAY currency.
+   The frontend sends identifiers, customer information,
+   refurbished selections and the customer's preferred
+   DISPLAY currency.
 
-   The browser never sends an authoritative product price,
-   exchange rate, unit price or order total.
+   The browser never sends:
+   - authoritative product price
+   - refurbished cosmetic-grade price
+   - battery-upgrade price
+   - exchange rate
+   - unit price
+   - shipping price
+   - order total
+
+   The Edge Function resolves all monetary values.
 ========================================================= */
 
 export type CreateOrderInput = {
-  customerName: string;
+  /* CUSTOMER */
 
-  customerEmail: string;
+  customerName:
+    string;
+
+  /*
+   * Optional.
+   *
+   * An empty string is valid and means that no confirmation
+   * email should be sent.
+   */
+  customerEmail?:
+    | string
+    | null;
 
   customerWhatsapp?:
     | string
     | null;
+
+  /* DELIVERY */
 
   customerCountry?:
     | string
@@ -86,7 +118,10 @@ export type CreateOrderInput = {
     | string
     | null;
 
-  productId: string;
+  /* PRODUCT */
+
+  productId:
+    string;
 
   variantId?:
     | string
@@ -95,7 +130,24 @@ export type CreateOrderInput = {
   condition:
     OrderCondition;
 
-  quantity?: number;
+  /*
+   * Required when condition === "refurbished".
+   *
+   * These identify the customer's selected options only.
+   * Their monetary values are resolved by the Edge Function.
+   */
+  refurbishedGrade?:
+    | OrderRefurbishedGrade
+    | null;
+
+  batteryGrade?:
+    | OrderBatteryGrade
+    | null;
+
+  quantity?:
+    number;
+
+  /* PAYMENT */
 
   paymentMethod?:
     OrderPaymentMethod;
@@ -112,15 +164,23 @@ export type CreateOrderInput = {
 ========================================================= */
 
 export type CreatedOrder = {
-  id: string;
+  id:
+    string;
 
-  order_number: string;
+  order_number:
+    string;
 
-  payment_reference: string;
+  payment_reference:
+    string;
 
-  customer_name: string;
+  /* CUSTOMER */
 
-  customer_email: string;
+  customer_name:
+    string;
+
+  customer_email?:
+    | string
+    | null;
 
   customer_whatsapp?:
     | string
@@ -161,6 +221,8 @@ export type CreatedOrder = {
   language?:
     OrderLanguage;
 
+  /* PRODUCT */
+
   product_id?:
     | string
     | null;
@@ -169,7 +231,8 @@ export type CreatedOrder = {
     | string
     | null;
 
-  product_name: string;
+  product_name:
+    string;
 
   storage:
     | string
@@ -182,14 +245,51 @@ export type CreatedOrder = {
   condition:
     OrderCondition;
 
-  quantity: number;
+  refurbished_grade?:
+    | OrderRefurbishedGrade
+    | null;
 
-  unit_price: number;
+  battery_grade?:
+    | OrderBatteryGrade
+    | null;
 
-  total_amount: number;
+  battery_upgrade_amount?:
+    number;
+
+  quantity:
+    number;
+
+  /*
+   * Final per-device price.
+   *
+   * For refurbished devices with a new battery this already
+   * contains the server-calculated +€89.
+   */
+  unit_price:
+    number;
+
+  /*
+   * Product subtotal before shipping.
+   */
+  subtotal?:
+    number;
+
+  subtotal_amount?:
+    number;
+
+  shipping_amount?:
+    number;
+
+  total_amount:
+    number;
+
+  total?:
+    number;
 
   currency?:
     string;
+
+  /* DISPLAY */
 
   display_currency?:
     OrderDisplayCurrency;
@@ -202,6 +302,8 @@ export type CreatedOrder = {
 
   exchange_rate?:
     number;
+
+  /* PAYMENT */
 
   payment_method:
     OrderPaymentMethod;
@@ -230,19 +332,58 @@ export type CreatedOrder = {
 export type OrderPricing = {
   /*
    * Actual settlement currency for the bank transfer.
-   * For the current POKAPOK Revolut flow this is EUR.
+   * Current POKAPOK settlement is EUR.
    */
-  currency: string;
+  currency:
+    string;
 
-  unit_price: number;
+  /*
+   * Supabase cosmetic-grade/device price BEFORE the optional
+   * new-battery surcharge.
+   */
+  base_unit_price?:
+    number;
 
-  quantity: number;
+  /*
+   * 89 when:
+   *
+   * condition === "refurbished"
+   * batteryGrade === "new"
+   *
+   * Otherwise 0.
+   */
+  battery_upgrade_amount?:
+    number;
 
-  total_amount: number;
+  /*
+   * Final server-calculated per-device price.
+   */
+  unit_price:
+    number;
+
+  quantity:
+    number;
+
+  /*
+   * Product(s) before shipping.
+   */
+  subtotal_amount?:
+    number;
+
+  /*
+   * Server-calculated destination shipping.
+   */
+  shipping_amount?:
+    number;
+
+  /*
+   * Final amount to transfer.
+   */
+  total_amount:
+    number;
 
   /*
    * Customer-facing display values.
-   * CVE is the storefront default; EUR is optional.
    */
   display_currency:
     OrderDisplayCurrency;
@@ -250,12 +391,20 @@ export type OrderPricing = {
   display_unit_price:
     number;
 
+  display_subtotal_amount?:
+    number;
+
+  display_shipping_amount?:
+    number;
+
   display_total_amount:
     number;
 
   /*
    * EUR -> display-currency rate used by the server.
-   * 110.265 when display_currency === "CVE"; 1 for EUR.
+   *
+   * 110.265 for CVE
+   * 1 for EUR
    */
   exchange_rate:
     number;
@@ -266,17 +415,23 @@ export type OrderPricing = {
 ========================================================= */
 
 export type BankTransferDetails = {
-  account_name: string;
+  account_name:
+    string;
 
-  iban: string;
+  iban:
+    string;
 
-  bic: string;
+  bic:
+    string;
 
-  bank_name: string;
+  bank_name:
+    string;
 
-  country: string;
+  country:
+    string;
 
-  currency: string;
+  currency:
+    string;
 };
 
 export type OrderPaymentDetails = {
@@ -286,7 +441,8 @@ export type OrderPaymentDetails = {
   status:
     "awaiting_payment";
 
-  reference: string;
+  reference:
+    string;
 
   bank:
     BankTransferDetails;
@@ -297,9 +453,11 @@ export type OrderPaymentDetails = {
 ========================================================= */
 
 export type CreateOrderResult = {
-  success: true;
+  success:
+    true;
 
-  email_sent: boolean;
+  email_sent:
+    boolean;
 
   warning?:
     | string
@@ -308,9 +466,11 @@ export type CreateOrderResult = {
   order:
     CreatedOrder;
 
-  order_number: string;
+  order_number:
+    string;
 
-  payment_reference: string;
+  payment_reference:
+    string;
 
   pricing:
     OrderPricing;
@@ -324,9 +484,14 @@ export type CreateOrderResult = {
 ========================================================= */
 
 type CreateOrderErrorResponse = {
-  success?: false;
+  success?:
+    false;
 
-  error?: string;
+  error?:
+    string;
+
+  message?:
+    string;
 };
 
 /* =========================================================
@@ -334,7 +499,8 @@ type CreateOrderErrorResponse = {
 ========================================================= */
 
 function isValidEmail(
-  email: string
+  email:
+    string
 ): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
     email
@@ -373,6 +539,36 @@ function toNumber(
   return number;
 }
 
+function toOptionalNumber(
+  value:
+    unknown
+):
+  | number
+  | undefined {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return undefined;
+  }
+
+  const number =
+    Number(
+      value
+    );
+
+  if (
+    !Number.isFinite(
+      number
+    )
+  ) {
+    return undefined;
+  }
+
+  return number;
+}
+
 function normalizeDisplayCurrency(
   value:
     | string
@@ -380,12 +576,60 @@ function normalizeDisplayCurrency(
     | undefined
 ): OrderDisplayCurrency {
   return String(
-    value ?? "CVE"
+    value ??
+      "CVE"
   )
     .trim()
-    .toUpperCase() === "EUR"
+    .toUpperCase() ===
+    "EUR"
     ? "EUR"
     : "CVE";
+}
+
+function normalizeRefurbishedGrade(
+  value:
+    | OrderRefurbishedGrade
+    | string
+    | null
+    | undefined
+):
+  | OrderRefurbishedGrade
+  | null {
+  if (
+    value ===
+      "correct" ||
+    value ===
+      "good" ||
+    value ===
+      "excellent" ||
+    value ===
+      "premium"
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
+function normalizeBatteryGrade(
+  value:
+    | OrderBatteryGrade
+    | string
+    | null
+    | undefined
+):
+  | OrderBatteryGrade
+  | null {
+  if (
+    value ===
+      "optimal" ||
+    value ===
+      "new"
+  ) {
+    return value;
+  }
+
+  return null;
 }
 
 /* =========================================================
@@ -412,25 +656,39 @@ function normalizeCreateOrderInput(
     );
 
   const customerCountry =
-    cleanString(input.customerCountry);
+    cleanString(
+      input.customerCountry
+    );
 
   const customerStateRegion =
-    cleanString(input.customerStateRegion);
+    cleanString(
+      input.customerStateRegion
+    );
 
   const customerCity =
-    cleanString(input.customerCity);
+    cleanString(
+      input.customerCity
+    );
 
   const customerStreet =
-    cleanString(input.customerStreet);
+    cleanString(
+      input.customerStreet
+    );
 
   const customerHouseNumber =
-    cleanString(input.customerHouseNumber);
+    cleanString(
+      input.customerHouseNumber
+    );
 
   const customerAddressLine2 =
-    cleanString(input.customerAddressLine2);
+    cleanString(
+      input.customerAddressLine2
+    );
 
   const customerPostalCode =
-    cleanString(input.customerPostalCode);
+    cleanString(
+      input.customerPostalCode
+    );
 
   const customerNotes =
     cleanString(
@@ -445,10 +703,30 @@ function normalizeCreateOrderInput(
   const variantId =
     cleanString(
       input.variantId
-    ) || null;
+    ) ||
+    null;
 
   const condition =
     input.condition;
+
+  /*
+   * New products must never carry refurbished configuration.
+   */
+  const refurbishedGrade =
+    condition ===
+      "refurbished"
+      ? normalizeRefurbishedGrade(
+          input.refurbishedGrade
+        )
+      : null;
+
+  const batteryGrade =
+    condition ===
+      "refurbished"
+      ? normalizeBatteryGrade(
+          input.batteryGrade
+        )
+      : null;
 
   const quantity =
     input.quantity ??
@@ -460,7 +738,8 @@ function normalizeCreateOrderInput(
 
   const language:
     OrderLanguage =
-    input.language === "en"
+    input.language ===
+      "en"
       ? "en"
       : "pt";
 
@@ -487,6 +766,10 @@ function normalizeCreateOrderInput(
     variantId,
 
     condition,
+
+    refurbishedGrade,
+    batteryGrade,
+
     quantity,
 
     paymentMethod,
@@ -498,8 +781,23 @@ function normalizeCreateOrderInput(
 /* =========================================================
    CLIENT-SIDE VALIDATION
 
-   This exists for user experience.
-   The Edge Function performs the actual security validation.
+   Required customer fields:
+   - full name
+   - WhatsApp
+   - country
+   - island / state / region
+
+   Optional:
+   - email
+   - city
+   - street
+   - house number
+   - address line 2
+   - postal code
+   - notes
+
+   The Edge Function performs the actual security and pricing
+   validation.
 ========================================================= */
 
 function validateCreateOrderInput(
@@ -508,6 +806,10 @@ function validateCreateOrderInput(
       typeof normalizeCreateOrderInput
     >
 ) {
+  /* =======================================================
+     CUSTOMER
+  ======================================================= */
+
   if (
     !input.customerName
   ) {
@@ -517,14 +819,20 @@ function validateCreateOrderInput(
   }
 
   if (
-    !input.customerEmail
+    !input.customerWhatsapp
   ) {
     throw new Error(
-      "CUSTOMER_EMAIL_REQUIRED"
+      "CUSTOMER_WHATSAPP_REQUIRED"
     );
   }
 
+  /*
+   * Email is optional.
+   *
+   * Validate it only if the customer supplied one.
+   */
   if (
+    input.customerEmail &&
     !isValidEmail(
       input.customerEmail
     )
@@ -534,17 +842,37 @@ function validateCreateOrderInput(
     );
   }
 
+  /* =======================================================
+     DELIVERY
+  ======================================================= */
+
   if (
-    !input.customerWhatsapp ||
-    !input.customerCountry ||
-    !input.customerStateRegion ||
-    !input.customerCity ||
-    !input.customerStreet
+    !input.customerCountry
   ) {
     throw new Error(
-      "DELIVERY_ADDRESS_REQUIRED"
+      "CUSTOMER_COUNTRY_REQUIRED"
     );
   }
+
+  if (
+    !input.customerStateRegion
+  ) {
+    throw new Error(
+      "CUSTOMER_STATE_REGION_REQUIRED"
+    );
+  }
+
+  /*
+   * City, street, house number, postal code and address line
+   * 2 are intentionally optional.
+   *
+   * The server still validates whether the selected country
+   * and Cabo Verde island are supported.
+   */
+
+  /* =======================================================
+     PRODUCT
+  ======================================================= */
 
   if (
     !input.productId
@@ -565,20 +893,29 @@ function validateCreateOrderInput(
     );
   }
 
+  /* =======================================================
+     QUANTITY
+  ======================================================= */
+
   if (
     !Number.isInteger(
       input.quantity
     ) ||
-    input.quantity < 1
+    input.quantity < 1 ||
+    input.quantity > 10
   ) {
     throw new Error(
       "INVALID_QUANTITY"
     );
   }
 
+  /* =======================================================
+     PAYMENT
+  ======================================================= */
+
   if (
     input.paymentMethod !==
-    "bank_transfer"
+      "bank_transfer"
   ) {
     throw new Error(
       "PAYMENT_METHOD_NOT_AVAILABLE"
@@ -595,6 +932,39 @@ function validateCreateOrderInput(
       "INVALID_DISPLAY_CURRENCY"
     );
   }
+
+  /* =======================================================
+     REFURBISHED CONFIGURATION
+  ======================================================= */
+
+  if (
+    input.condition ===
+      "refurbished"
+  ) {
+    if (
+      !input.variantId
+    ) {
+      throw new Error(
+        "REFURBISHED_VARIANT_REQUIRED"
+      );
+    }
+
+    if (
+      !input.refurbishedGrade
+    ) {
+      throw new Error(
+        "REFURBISHED_GRADE_REQUIRED"
+      );
+    }
+
+    if (
+      !input.batteryGrade
+    ) {
+      throw new Error(
+        "BATTERY_GRADE_REQUIRED"
+      );
+    }
+  }
 }
 
 /* =========================================================
@@ -602,10 +972,29 @@ function validateCreateOrderInput(
 ========================================================= */
 
 function normalizeCreatedOrder(
-  order: any
+  order:
+    any
 ): CreatedOrder {
   return {
     ...order,
+
+    refurbished_grade:
+      normalizeRefurbishedGrade(
+        order
+          ?.refurbished_grade
+      ),
+
+    battery_grade:
+      normalizeBatteryGrade(
+        order
+          ?.battery_grade
+      ),
+
+    battery_upgrade_amount:
+      toNumber(
+        order
+          ?.battery_upgrade_amount
+      ),
 
     quantity:
       toNumber(
@@ -615,6 +1004,26 @@ function normalizeCreatedOrder(
     unit_price:
       toNumber(
         order.unit_price
+      ),
+
+    subtotal:
+      toOptionalNumber(
+        order.subtotal
+      ),
+
+    subtotal_amount:
+      toOptionalNumber(
+        order.subtotal_amount
+      ),
+
+    shipping_amount:
+      toOptionalNumber(
+        order.shipping_amount
+      ),
+
+    total:
+      toOptionalNumber(
+        order.total
       ),
 
     total_amount:
@@ -649,50 +1058,117 @@ function normalizeCreatedOrder(
 ========================================================= */
 
 function normalizeOrderPricing(
-  pricing: any
+  pricing:
+    any
 ): OrderPricing {
+  const baseUnitPrice =
+    toOptionalNumber(
+      pricing
+        ?.base_unit_price
+    );
+
+  const batteryUpgradeAmount =
+    toOptionalNumber(
+      pricing
+        ?.battery_upgrade_amount
+    );
+
+  const subtotalAmount =
+    toOptionalNumber(
+      pricing
+        ?.subtotal_amount ??
+      pricing
+        ?.item_subtotal
+    );
+
+  const shippingAmount =
+    toOptionalNumber(
+      pricing
+        ?.shipping_amount
+    );
+
+  const displaySubtotalAmount =
+    toOptionalNumber(
+      pricing
+        ?.display_subtotal_amount ??
+      pricing
+        ?.display_subtotal
+    );
+
+  const displayShippingAmount =
+    toOptionalNumber(
+      pricing
+        ?.display_shipping_amount
+    );
+
   return {
     currency:
       String(
-        pricing?.currency ??
+        pricing
+          ?.currency ??
         "EUR"
       )
         .trim()
         .toUpperCase(),
 
+    base_unit_price:
+      baseUnitPrice,
+
+    battery_upgrade_amount:
+      batteryUpgradeAmount,
+
     unit_price:
       toNumber(
-        pricing?.unit_price
+        pricing
+          ?.unit_price
       ),
 
     quantity:
       toNumber(
-        pricing?.quantity
+        pricing
+          ?.quantity
       ),
+
+    subtotal_amount:
+      subtotalAmount,
+
+    shipping_amount:
+      shippingAmount,
 
     total_amount:
       toNumber(
-        pricing?.total_amount
+        pricing
+          ?.total_amount
       ),
 
     display_currency:
       normalizeDisplayCurrency(
-        pricing?.display_currency
+        pricing
+          ?.display_currency
       ),
 
     display_unit_price:
       toNumber(
-        pricing?.display_unit_price
+        pricing
+          ?.display_unit_price
       ),
+
+    display_subtotal_amount:
+      displaySubtotalAmount,
+
+    display_shipping_amount:
+      displayShippingAmount,
 
     display_total_amount:
       toNumber(
-        pricing?.display_total_amount
+        pricing
+          ?.display_total_amount
       ),
 
     exchange_rate:
       toNumber(
-        pricing?.exchange_rate
+        pricing
+          ?.exchange_rate
       ),
   };
 }
@@ -702,42 +1178,49 @@ function normalizeOrderPricing(
 ========================================================= */
 
 function normalizeBankDetails(
-  bank: any
+  bank:
+    any
 ): BankTransferDetails {
   return {
     account_name:
       String(
-        bank?.account_name ??
+        bank
+          ?.account_name ??
         ""
       ),
 
     iban:
       String(
-        bank?.iban ??
+        bank
+          ?.iban ??
         ""
       ),
 
     bic:
       String(
-        bank?.bic ??
+        bank
+          ?.bic ??
         ""
       ),
 
     bank_name:
       String(
-        bank?.bank_name ??
+        bank
+          ?.bank_name ??
         ""
       ),
 
     country:
       String(
-        bank?.country ??
+        bank
+          ?.country ??
         ""
       ),
 
     currency:
       String(
-        bank?.currency ??
+        bank
+          ?.currency ??
         "EUR"
       )
         .trim()
@@ -763,45 +1246,73 @@ export async function createOrder(
   );
 
   /*
-   * Prices and exchange-rate values are intentionally absent.
-   * The server calculates them from Supabase and the fixed
-   * EUR/CVE conversion rule.
+   * SECURITY
+   *
+   * No monetary product value is sent from the browser.
+   *
+   * The browser sends only:
+   * - product ID
+   * - variant ID
+   * - condition
+   * - cosmetic grade
+   * - battery option
+   * - destination information
+   *
+   * The Edge Function independently calculates:
+   * - product price
+   * - cosmetic-grade price
+   * - new-battery +€89 surcharge
+   * - shipping
+   * - subtotal
+   * - final total
+   * - display currency conversion
    */
   const requestBody = {
+    /* CUSTOMER */
+
     customer_name:
       normalized.customerName,
 
     customer_email:
-      normalized.customerEmail,
-
-    customer_whatsapp:
-      normalized.customerWhatsapp ||
+      normalized.customerEmail ||
       null,
 
+    customer_whatsapp:
+      normalized.customerWhatsapp,
+
+    /* DELIVERY */
+
     customer_country:
-      normalized.customerCountry || null,
+      normalized.customerCountry,
 
     customer_state_region:
-      normalized.customerStateRegion || null,
+      normalized.customerStateRegion,
 
     customer_city:
-      normalized.customerCity || null,
+      normalized.customerCity ||
+      null,
 
     customer_street:
-      normalized.customerStreet || null,
+      normalized.customerStreet ||
+      null,
 
     customer_house_number:
-      normalized.customerHouseNumber || null,
+      normalized.customerHouseNumber ||
+      null,
 
     customer_address_line_2:
-      normalized.customerAddressLine2 || null,
+      normalized.customerAddressLine2 ||
+      null,
 
     customer_postal_code:
-      normalized.customerPostalCode || null,
+      normalized.customerPostalCode ||
+      null,
 
     customer_notes:
       normalized.customerNotes ||
       null,
+
+    /* PRODUCT */
 
     product_id:
       normalized.productId,
@@ -812,8 +1323,27 @@ export async function createOrder(
     condition:
       normalized.condition,
 
+    /*
+     * Selection identifiers only.
+     *
+     * No cosmetic-grade price or battery price is sent.
+     */
+    refurbished_grade:
+      normalized.condition ===
+        "refurbished"
+        ? normalized.refurbishedGrade
+        : null,
+
+    battery_grade:
+      normalized.condition ===
+        "refurbished"
+        ? normalized.batteryGrade
+        : null,
+
     quantity:
       normalized.quantity,
+
+    /* PAYMENT */
 
     payment_method:
       normalized.paymentMethod,
@@ -837,11 +1367,18 @@ export async function createOrder(
       }
     );
 
-  if (error) {
+  if (
+    error
+  ) {
     console.error(
       "Create order function error:",
       error
     );
+
+    let serverCode:
+      | string
+      | null =
+      null;
 
     let serverMessage:
       | string
@@ -867,8 +1404,17 @@ export async function createOrder(
             ?.error ===
           "string"
         ) {
-          serverMessage =
+          serverCode =
             errorBody.error;
+        }
+
+        if (
+          typeof errorBody
+            ?.message ===
+          "string"
+        ) {
+          serverMessage =
+            errorBody.message;
         }
       }
     } catch (
@@ -880,13 +1426,30 @@ export async function createOrder(
       );
     }
 
+    console.error(
+      "create-order server response:",
+      {
+        code:
+          serverCode,
+
+        message:
+          serverMessage,
+      }
+    );
+
+    /*
+     * Use the machine-readable error code so checkout.tsx
+     * can translate errors into the appropriate customer UI.
+     */
     throw new Error(
-      serverMessage ||
+      serverCode ||
       "ORDER_CREATE_FAILED"
     );
   }
 
-  if (!data) {
+  if (
+    !data
+  ) {
     throw new Error(
       "ORDER_RESPONSE_EMPTY"
     );
@@ -899,7 +1462,7 @@ export async function createOrder(
 
   if (
     response.success !==
-    true
+      true
   ) {
     throw new Error(
       response.error ||
@@ -1001,20 +1564,31 @@ export async function createOrder(
 
       reference:
         String(
-          response.payment.reference ??
-          response.payment_reference
+          response
+            .payment
+            .reference ??
+          response
+            .payment_reference
         ),
 
       bank:
         normalizeBankDetails(
-          response.payment.bank
+          response
+            .payment
+            .bank
         ),
     },
   };
 
+  /* =======================================================
+     RESPONSE SECURITY / SANITY CHECKS
+  ======================================================= */
+
   if (
-    result.pricing
-      .total_amount <= 0
+    result
+      .pricing
+      .total_amount <=
+    0
   ) {
     console.error(
       "Invalid pricing returned by create-order:",
@@ -1027,8 +1601,58 @@ export async function createOrder(
   }
 
   if (
-    !result.payment
-      .bank.iban
+    result
+      .pricing
+      .unit_price <=
+    0
+  ) {
+    console.error(
+      "Invalid unit price returned by create-order:",
+      result
+    );
+
+    throw new Error(
+      "INVALID_ORDER_UNIT_PRICE"
+    );
+  }
+
+  if (
+    !Number.isInteger(
+      result.pricing.quantity
+    ) ||
+    result.pricing.quantity < 1
+  ) {
+    console.error(
+      "Invalid quantity returned by create-order:",
+      result
+    );
+
+    throw new Error(
+      "INVALID_ORDER_QUANTITY"
+    );
+  }
+
+  if (
+    result
+      .pricing
+      .currency !==
+    "EUR"
+  ) {
+    console.error(
+      "Unexpected settlement currency returned by create-order:",
+      result
+    );
+
+    throw new Error(
+      "INVALID_SETTLEMENT_CURRENCY"
+    );
+  }
+
+  if (
+    !result
+      .payment
+      .bank
+      .iban
   ) {
     console.error(
       "Missing IBAN returned by create-order:",
@@ -1040,6 +1664,79 @@ export async function createOrder(
     );
   }
 
+  if (
+    result
+      .payment
+      .bank
+      .currency !==
+    "EUR"
+  ) {
+    console.error(
+      "Unexpected bank currency returned by create-order:",
+      result
+    );
+
+    throw new Error(
+      "INVALID_BANK_CURRENCY"
+    );
+  }
+
+  /*
+   * Additional refurbished consistency checks.
+   */
+  if (
+    normalized.condition ===
+      "refurbished"
+  ) {
+    if (
+      result.order
+        .refurbished_grade &&
+      result.order
+        .refurbished_grade !==
+        normalized.refurbishedGrade
+    ) {
+      console.error(
+        "Refurbished grade mismatch:",
+        {
+          requested:
+            normalized.refurbishedGrade,
+
+          returned:
+            result.order
+              .refurbished_grade,
+        }
+      );
+
+      throw new Error(
+        "REFURBISHED_GRADE_MISMATCH"
+      );
+    }
+
+    if (
+      result.order
+        .battery_grade &&
+      result.order
+        .battery_grade !==
+        normalized.batteryGrade
+    ) {
+      console.error(
+        "Battery grade mismatch:",
+        {
+          requested:
+            normalized.batteryGrade,
+
+          returned:
+            result.order
+              .battery_grade,
+        }
+      );
+
+      throw new Error(
+        "BATTERY_GRADE_MISMATCH"
+      );
+    }
+  }
+
   return result;
 }
 
@@ -1048,8 +1745,12 @@ export async function createOrder(
 ========================================================= */
 
 export function formatOrderPrice(
-  amount: number,
-  currency = "EUR",
+  amount:
+    number,
+
+  currency =
+    "EUR",
+
   language:
     OrderLanguage =
     "pt"
@@ -1060,13 +1761,14 @@ export function formatOrderPrice(
       .toUpperCase();
 
   const locale =
-    language === "pt"
+    language ===
+      "pt"
       ? "pt-PT"
       : "en-IE";
 
   if (
     normalizedCurrency ===
-    "CVE"
+      "CVE"
   ) {
     return `${new Intl.NumberFormat(
       locale,
@@ -1096,21 +1798,24 @@ export function formatOrderPrice(
 }
 
 /* =========================================================
-   DISPLAY TOTAL
+   SETTLEMENT TOTAL
 ========================================================= */
 
 export function getOrderDisplayTotal(
   result:
     CreateOrderResult,
+
   language:
     OrderLanguage =
     "pt"
 ): string {
   return formatOrderPrice(
-    result.pricing
+    result
+      .pricing
       .total_amount,
 
-    result.pricing
+    result
+      .pricing
       .currency,
 
     language
@@ -1124,15 +1829,18 @@ export function getOrderDisplayTotal(
 export function getOrderCustomerDisplayTotal(
   result:
     CreateOrderResult,
+
   language:
     OrderLanguage =
     "pt"
 ): string {
   return formatOrderPrice(
-    result.pricing
+    result
+      .pricing
       .display_total_amount,
 
-    result.pricing
+    result
+      .pricing
       .display_currency,
 
     language
@@ -1140,21 +1848,24 @@ export function getOrderCustomerDisplayTotal(
 }
 
 /* =========================================================
-   DISPLAY UNIT PRICE
+   SETTLEMENT UNIT PRICE
 ========================================================= */
 
 export function getOrderDisplayUnitPrice(
   result:
     CreateOrderResult,
+
   language:
     OrderLanguage =
     "pt"
 ): string {
   return formatOrderPrice(
-    result.pricing
+    result
+      .pricing
       .unit_price,
 
-    result.pricing
+    result
+      .pricing
       .currency,
 
     language

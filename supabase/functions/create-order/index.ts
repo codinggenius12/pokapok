@@ -16,65 +16,177 @@ type DisplayCurrency =
   | "CVE"
   | "EUR";
 
+type RefurbishedGrade =
+  | "correct"
+  | "good"
+  | "excellent"
+  | "premium";
+
+type BatteryGrade =
+  | "optimal"
+  | "new";
+
 type ProductRow = {
-  id: string;
-  name: string;
-  slug: string;
+  id:
+    string;
+
+  name:
+    string;
+
+  slug:
+    string;
+
   condition:
     | SellCondition
     | "used";
-  refurbished_enabled: boolean;
+
+  refurbished_enabled:
+    boolean;
+
   sale_price:
     | number
     | string
     | null;
+
   promotional_price:
     | number
     | string
     | null;
-  available: boolean;
-  published: boolean;
+
+  available:
+    boolean;
+
+  published:
+    boolean;
 };
 
 type VariantRow = {
-  id: string;
-  product_id: string;
+  id:
+    string;
+
+  product_id:
+    string;
+
   storage:
     | string
     | null;
+
   color:
     | string
     | null;
+
   sku:
     | string
     | null;
-  available: boolean;
+
+  available:
+    boolean;
+
+  /* NEW */
+
   sale_price:
     | number
     | string
     | null;
+
   promotional_price:
     | number
     | string
     | null;
+
+  /* LEGACY GENERIC REFURBISHED */
+
   refurbished_sale_price:
     | number
     | string
     | null;
+
   refurbished_promotional_price:
+    | number
+    | string
+    | null;
+
+  /* EXACT REFURBISHED GRADES */
+
+  refurbished_correct_sale_price:
+    | number
+    | string
+    | null;
+
+  refurbished_correct_promotional_price:
+    | number
+    | string
+    | null;
+
+  refurbished_good_sale_price:
+    | number
+    | string
+    | null;
+
+  refurbished_good_promotional_price:
+    | number
+    | string
+    | null;
+
+  refurbished_excellent_sale_price:
+    | number
+    | string
+    | null;
+
+  refurbished_excellent_promotional_price:
+    | number
+    | string
+    | null;
+
+  refurbished_premium_sale_price:
+    | number
+    | string
+    | null;
+
+  refurbished_premium_promotional_price:
     | number
     | string
     | null;
 };
 
 type BankDetails = {
-  account_name: string;
-  iban: string;
-  bic: string;
-  bank_name: string;
-  country: string;
-  currency: string;
+  account_name:
+    string;
+
+  iban:
+    string;
+
+  bic:
+    string;
+
+  bank_name:
+    string;
+
+  country:
+    string;
+
+  currency:
+    string;
 };
+
+type DestinationValidationResult =
+  | {
+      valid:
+        false;
+
+      code:
+        string;
+
+      message:
+        string;
+    }
+  | {
+      valid:
+        true;
+
+      shippingPrice:
+        number;
+    };
 
 /* =========================================================
    CURRENCY
@@ -85,6 +197,67 @@ const EUR_TO_CVE =
 
 const SETTLEMENT_CURRENCY =
   "EUR";
+
+/* =========================================================
+   REFURBISHED
+========================================================= */
+
+const NEW_BATTERY_UPGRADE_PRICE =
+  89;
+
+/* =========================================================
+   SHIPPING
+========================================================= */
+
+const EUROPE_SHIPPING_PRICE =
+  12.75;
+
+const CABO_VERDE_SHIPPING_PRICE =
+  21;
+
+const SUPPORTED_EUROPE_COUNTRIES =
+  new Set([
+    "Portugal",
+    "Netherlands",
+    "Belgium",
+    "Germany",
+    "France",
+    "Spain",
+    "Italy",
+    "Luxembourg",
+    "Austria",
+    "Denmark",
+    "Sweden",
+    "Finland",
+    "Ireland",
+    "Greece",
+    "Poland",
+    "Czech Republic",
+    "Slovakia",
+    "Slovenia",
+    "Croatia",
+    "Hungary",
+    "Romania",
+    "Bulgaria",
+    "Estonia",
+    "Latvia",
+    "Lithuania",
+    "Cyprus",
+    "Malta",
+  ]);
+
+const CABO_VERDE_ISLANDS =
+  new Set([
+    "Santiago",
+    "São Vicente",
+    "Santo Antão",
+    "São Nicolau",
+    "Sal",
+    "Boa Vista",
+    "Maio",
+    "Fogo",
+    "Brava",
+  ]);
 
 /* =========================================================
    CORS
@@ -111,7 +284,9 @@ function jsonResponse(
       string,
       unknown
     >,
-  status = 200
+
+  status =
+    200
 ) {
   return new Response(
     JSON.stringify(
@@ -131,14 +306,44 @@ function jsonResponse(
 }
 
 function badRequest(
-  message: string
+  code:
+    string,
+
+  message:
+    string
 ) {
   return jsonResponse(
     {
-      success: false,
-      error: message,
+      success:
+        false,
+
+      error:
+        code,
+
+      message,
     },
     400
+  );
+}
+
+function serverError(
+  code:
+    string,
+
+  message:
+    string
+) {
+  return jsonResponse(
+    {
+      success:
+        false,
+
+      error:
+        code,
+
+      message,
+    },
+    500
   );
 }
 
@@ -147,31 +352,19 @@ function badRequest(
 ========================================================= */
 
 function cleanString(
-  value: unknown
+  value:
+    unknown
 ) {
   return String(
     value ??
-    ""
+      ""
   ).trim();
 }
 
-function toNumber(
-  value: unknown
-) {
-  const parsed =
-    Number(
-      value
-    );
-
-  return Number.isFinite(
-    parsed
-  )
-    ? parsed
-    : 0;
-}
 
 function toNullableNumber(
-  value: unknown
+  value:
+    unknown
 ) {
   if (
     value === null ||
@@ -194,7 +387,8 @@ function toNullableNumber(
 }
 
 function roundMoney(
-  value: number
+  value:
+    number
 ) {
   return (
     Math.round(
@@ -207,7 +401,8 @@ function roundMoney(
 }
 
 function isValidEmail(
-  email: string
+  email:
+    string
 ) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
     email
@@ -215,7 +410,8 @@ function isValidEmail(
 }
 
 function normalizeDisplayCurrency(
-  value: unknown
+  value:
+    unknown
 ):
   | DisplayCurrency
   | null {
@@ -224,7 +420,9 @@ function normalizeDisplayCurrency(
       value
     ).toUpperCase();
 
-  if (!normalized) {
+  if (
+    !normalized
+  ) {
     return "CVE";
   }
 
@@ -240,18 +438,70 @@ function normalizeDisplayCurrency(
   return null;
 }
 
+function normalizeRefurbishedGrade(
+  value:
+    unknown
+):
+  | RefurbishedGrade
+  | null {
+  const normalized =
+    cleanString(
+      value
+    ).toLowerCase();
+
+  if (
+    normalized ===
+      "correct" ||
+    normalized ===
+      "good" ||
+    normalized ===
+      "excellent" ||
+    normalized ===
+      "premium"
+  ) {
+    return normalized;
+  }
+
+  return null;
+}
+
+function normalizeBatteryGrade(
+  value:
+    unknown
+):
+  | BatteryGrade
+  | null {
+  const normalized =
+    cleanString(
+      value
+    ).toLowerCase();
+
+  if (
+    normalized ===
+      "optimal" ||
+    normalized ===
+      "new"
+  ) {
+    return normalized;
+  }
+
+  return null;
+}
+
 function convertEurForDisplay(
-  eurAmount: number,
+  eurAmount:
+    number,
+
   displayCurrency:
     DisplayCurrency
 ) {
   if (
     displayCurrency ===
-    "CVE"
+      "CVE"
   ) {
     return Math.round(
       eurAmount *
-      EUR_TO_CVE
+        EUR_TO_CVE
     );
   }
 
@@ -261,17 +511,24 @@ function convertEurForDisplay(
 }
 
 function formatMoney(
-  amount: number,
-  currency: string,
-  language: Language
+  amount:
+    number,
+
+  currency:
+    string,
+
+  language:
+    Language
 ) {
   const locale =
-    language === "pt"
+    language ===
+      "pt"
       ? "pt-PT"
       : "en-IE";
 
   if (
-    currency === "CVE"
+    currency ===
+      "CVE"
   ) {
     return `${new Intl.NumberFormat(
       locale,
@@ -304,7 +561,8 @@ function formatMoney(
 ========================================================= */
 
 function randomCode(
-  length: number
+  length:
+    number
 ) {
   const alphabet =
     "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -320,12 +578,16 @@ function randomCode(
 
   return Array.from(
     bytes,
-    (byte) =>
+    (
+      byte
+    ) =>
       alphabet[
         byte %
-        alphabet.length
+          alphabet.length
       ]
-  ).join("");
+  ).join(
+    ""
+  );
 }
 
 function createOrderNumber() {
@@ -349,7 +611,8 @@ function createPaymentReference() {
 ========================================================= */
 
 function escapeHtml(
-  value: string
+  value:
+    string
 ) {
   return value
     .replaceAll(
@@ -387,13 +650,26 @@ function buildTextAddress({
   stateRegion,
   country,
 }: {
-  street: string;
-  houseNumber: string;
-  addressLine2: string;
-  postalCode: string;
-  city: string;
-  stateRegion: string;
-  country: string;
+  street:
+    string;
+
+  houseNumber:
+    string;
+
+  addressLine2:
+    string;
+
+  postalCode:
+    string;
+
+  city:
+    string;
+
+  stateRegion:
+    string;
+
+  country:
+    string;
 }) {
   const lines:
     string[] = [];
@@ -403,16 +679,24 @@ function buildTextAddress({
       street,
       houseNumber,
     ]
-      .filter(Boolean)
-      .join(", ");
+      .filter(
+        Boolean
+      )
+      .join(
+        ", "
+      );
 
-  if (streetLine) {
+  if (
+    streetLine
+  ) {
     lines.push(
       streetLine
     );
   }
 
-  if (addressLine2) {
+  if (
+    addressLine2
+  ) {
     lines.push(
       addressLine2
     );
@@ -423,22 +707,32 @@ function buildTextAddress({
       postalCode,
       city,
     ]
-      .filter(Boolean)
-      .join(" ");
+      .filter(
+        Boolean
+      )
+      .join(
+        " "
+      );
 
-  if (cityLine) {
+  if (
+    cityLine
+  ) {
     lines.push(
       cityLine
     );
   }
 
-  if (stateRegion) {
+  if (
+    stateRegion
+  ) {
     lines.push(
       stateRegion
     );
   }
 
-  if (country) {
+  if (
+    country
+  ) {
     lines.push(
       country
     );
@@ -458,13 +752,26 @@ function buildHtmlAddress({
   stateRegion,
   country,
 }: {
-  street: string;
-  houseNumber: string;
-  addressLine2: string;
-  postalCode: string;
-  city: string;
-  stateRegion: string;
-  country: string;
+  street:
+    string;
+
+  houseNumber:
+    string;
+
+  addressLine2:
+    string;
+
+  postalCode:
+    string;
+
+  city:
+    string;
+
+  stateRegion:
+    string;
+
+  country:
+    string;
 }) {
   const lines:
     string[] = [];
@@ -474,10 +781,16 @@ function buildHtmlAddress({
       street,
       houseNumber,
     ]
-      .filter(Boolean)
-      .join(", ");
+      .filter(
+        Boolean
+      )
+      .join(
+        ", "
+      );
 
-  if (streetLine) {
+  if (
+    streetLine
+  ) {
     lines.push(
       escapeHtml(
         streetLine
@@ -485,7 +798,9 @@ function buildHtmlAddress({
     );
   }
 
-  if (addressLine2) {
+  if (
+    addressLine2
+  ) {
     lines.push(
       escapeHtml(
         addressLine2
@@ -498,10 +813,16 @@ function buildHtmlAddress({
       postalCode,
       city,
     ]
-      .filter(Boolean)
-      .join(" ");
+      .filter(
+        Boolean
+      )
+      .join(
+        " "
+      );
 
-  if (cityLine) {
+  if (
+    cityLine
+  ) {
     lines.push(
       escapeHtml(
         cityLine
@@ -509,7 +830,9 @@ function buildHtmlAddress({
     );
   }
 
-  if (stateRegion) {
+  if (
+    stateRegion
+  ) {
     lines.push(
       escapeHtml(
         stateRegion
@@ -517,7 +840,9 @@ function buildHtmlAddress({
     );
   }
 
-  if (country) {
+  if (
+    country
+  ) {
     lines.push(
       escapeHtml(
         country
@@ -540,7 +865,7 @@ function productCanBeSoldNew(
 ) {
   return (
     product.condition ===
-    "new"
+      "new"
   );
 }
 
@@ -551,13 +876,13 @@ function productCanBeSoldRefurbished(
   return (
     product.condition ===
       "refurbished" ||
-    product
-      .refurbished_enabled
+    product.refurbished_enabled ===
+      true
   );
 }
 
 /* =========================================================
-   AUTHORITATIVE VARIANT PRICE
+   ACTIVE PRICE
 ========================================================= */
 
 function activePrice(
@@ -565,13 +890,14 @@ function activePrice(
     | number
     | string
     | null,
+
   promotionalPrice:
     | number
     | string
     | null
 ) {
   const normal =
-    toNumber(
+    toNullableNumber(
       normalPrice
     );
 
@@ -581,35 +907,120 @@ function activePrice(
     );
 
   if (
-    normal <= 0
-  ) {
-    return null;
-  }
-
-  if (
     promotional !==
       null &&
     promotional > 0 &&
-    promotional <
-      normal
+    (
+      normal ===
+        null ||
+      promotional <
+        normal
+    )
   ) {
     return promotional;
   }
 
-  return normal;
+  if (
+    normal !==
+      null &&
+    normal > 0
+  ) {
+    return normal;
+  }
+
+  return null;
 }
 
-function getVariantPrice(
-  product:
-    ProductRow,
+/* =========================================================
+   EXACT REFURBISHED GRADE PRICE
+========================================================= */
+
+function getRefurbishedGradePrice(
   variant:
     VariantRow,
-  condition:
-    SellCondition
+
+  grade:
+    RefurbishedGrade
 ) {
   if (
+    grade ===
+      "correct"
+  ) {
+    return activePrice(
+      variant
+        .refurbished_correct_sale_price,
+
+      variant
+        .refurbished_correct_promotional_price
+    );
+  }
+
+  if (
+    grade ===
+      "good"
+  ) {
+    return activePrice(
+      variant
+        .refurbished_good_sale_price,
+
+      variant
+        .refurbished_good_promotional_price
+    );
+  }
+
+  if (
+    grade ===
+      "excellent"
+  ) {
+    return activePrice(
+      variant
+        .refurbished_excellent_sale_price,
+
+      variant
+        .refurbished_excellent_promotional_price
+    );
+  }
+
+  return activePrice(
+    variant
+      .refurbished_premium_sale_price,
+
+    variant
+      .refurbished_premium_promotional_price
+  );
+}
+
+/* =========================================================
+   AUTHORITATIVE BASE PRICE
+========================================================= */
+
+function getAuthoritativeBasePrice({
+  product,
+  variant,
+  condition,
+  refurbishedGrade,
+}: {
+  product:
+    ProductRow;
+
+  variant:
+    | VariantRow
+    | null;
+
+  condition:
+    SellCondition;
+
+  refurbishedGrade:
+    | RefurbishedGrade
+    | null;
+}) {
+  /* =======================================================
+     NEW
+  ======================================================= */
+
+  if (
     condition ===
-    "new"
+      "new"
   ) {
     if (
       !productCanBeSoldNew(
@@ -617,28 +1028,61 @@ function getVariantPrice(
       )
     ) {
       throw new Error(
-        "This product is not available as new."
+        "NEW_NOT_AVAILABLE"
       );
     }
 
+    if (
+      variant
+    ) {
+      const price =
+        activePrice(
+          variant
+            .sale_price,
+
+          variant
+            .promotional_price
+        );
+
+      if (
+        price ===
+          null
+      ) {
+        throw new Error(
+          "PRICE_NOT_AVAILABLE"
+        );
+      }
+
+      return price;
+    }
+
+    /*
+     * Product-level fallback is kept only for NEW products.
+     */
     const price =
       activePrice(
-        variant
+        product
           .sale_price,
-        variant
+
+        product
           .promotional_price
       );
 
     if (
-      price === null
+      price ===
+        null
     ) {
       throw new Error(
-        "Variant price is not configured."
+        "PRICE_NOT_AVAILABLE"
       );
     }
 
     return price;
   }
+
+  /* =======================================================
+     REFURBISHED
+  ======================================================= */
 
   if (
     !productCanBeSoldRefurbished(
@@ -646,46 +1090,50 @@ function getVariantPrice(
     )
   ) {
     throw new Error(
-      "This product is not available refurbished."
+      "REFURBISHED_NOT_AVAILABLE"
+    );
+  }
+
+  /*
+   * Exact cosmetic-grade pricing always requires a real
+   * product variant.
+   *
+   * We intentionally DO NOT fall back to:
+   *
+   * refurbished_sale_price
+   * refurbished_promotional_price
+   *
+   * because those generic fields cannot represent the exact
+   * grade selected by the customer.
+   */
+  if (
+    !variant
+  ) {
+    throw new Error(
+      "REFURBISHED_VARIANT_REQUIRED"
     );
   }
 
   if (
-    product.condition ===
-    "refurbished"
+    !refurbishedGrade
   ) {
-    const price =
-      activePrice(
-        variant
-          .sale_price,
-        variant
-          .promotional_price
-      );
-
-    if (
-      price === null
-    ) {
-      throw new Error(
-        "Refurbished variant price is not configured."
-      );
-    }
-
-    return price;
+    throw new Error(
+      "REFURBISHED_GRADE_REQUIRED"
+    );
   }
 
   const price =
-    activePrice(
-      variant
-        .refurbished_sale_price,
-      variant
-        .refurbished_promotional_price
+    getRefurbishedGradePrice(
+      variant,
+      refurbishedGrade
     );
 
   if (
-    price === null
+    price ===
+      null
   ) {
     throw new Error(
-      "Refurbished variant price is not configured."
+      "REFURBISHED_GRADE_PRICE_NOT_AVAILABLE"
     );
   }
 
@@ -693,54 +1141,202 @@ function getVariantPrice(
 }
 
 /* =========================================================
-   LEGACY PRODUCT-LEVEL FALLBACK
+   SHIPPING
 ========================================================= */
 
-function getProductFallbackPrice(
-  product:
-    ProductRow,
-  condition:
-    SellCondition
-) {
+function getShippingPrice(
+  country:
+    string
+):
+  | number
+  | null {
   if (
-    condition ===
-      "refurbished" &&
-    product.condition !==
-      "refurbished"
+    country ===
+      "Cabo Verde"
   ) {
-    throw new Error(
-      "A variant is required for this refurbished configuration."
-    );
+    return CABO_VERDE_SHIPPING_PRICE;
   }
 
   if (
-    condition ===
-      "new" &&
-    !productCanBeSoldNew(
-      product
+    SUPPORTED_EUROPE_COUNTRIES.has(
+      country
     )
   ) {
-    throw new Error(
-      "This product is not available as new."
-    );
+    return EUROPE_SHIPPING_PRICE;
   }
 
-  const price =
-    activePrice(
-      product.sale_price,
-      product
-        .promotional_price
+  return null;
+}
+
+function validateDestination(
+  country:
+    string,
+
+  stateRegion:
+    string
+): DestinationValidationResult {
+  if (
+    !country
+  ) {
+    return {
+      valid:
+        false,
+
+      code:
+        "COUNTRY_REQUIRED",
+
+      message:
+        "Shipping country is required.",
+    };
+  }
+
+  if (
+    !stateRegion
+  ) {
+    return {
+      valid:
+        false,
+
+      code:
+        "STATE_REGION_REQUIRED",
+
+      message:
+        "Island, state or region is required.",
+    };
+  }
+
+  const shippingPrice =
+    getShippingPrice(
+      country
     );
 
   if (
-    price === null
+    shippingPrice ===
+      null
   ) {
-    throw new Error(
-      "This product does not have a valid sale price."
-    );
+    return {
+      valid:
+        false,
+
+      code:
+        "UNSUPPORTED_SHIPPING_COUNTRY",
+
+      message:
+        "Shipping is not available to this country.",
+    };
   }
 
-  return price;
+  if (
+    country ===
+      "Cabo Verde" &&
+    !CABO_VERDE_ISLANDS.has(
+      stateRegion
+    )
+  ) {
+    return {
+      valid:
+        false,
+
+      code:
+        "INVALID_CABO_VERDE_ISLAND",
+
+      message:
+        "A valid Cabo Verde island is required.",
+    };
+  }
+
+  return {
+    valid:
+      true,
+
+    shippingPrice,
+  };
+}
+
+/* =========================================================
+   LABEL HELPERS
+========================================================= */
+
+function getRefurbishedGradeLabel(
+  grade:
+    RefurbishedGrade,
+
+  language:
+    Language
+) {
+  if (
+    language ===
+      "pt"
+  ) {
+    if (
+      grade ===
+        "correct"
+    ) {
+      return "Correto";
+    }
+
+    if (
+      grade ===
+        "good"
+    ) {
+      return "Bom";
+    }
+
+    if (
+      grade ===
+        "excellent"
+    ) {
+      return "Excelente";
+    }
+
+    return "Premium";
+  }
+
+  if (
+    grade ===
+      "correct"
+  ) {
+    return "Correct";
+  }
+
+  if (
+    grade ===
+      "good"
+  ) {
+    return "Good";
+  }
+
+  if (
+    grade ===
+      "excellent"
+  ) {
+    return "Excellent";
+  }
+
+  return "Premium";
+}
+
+function getBatteryGradeLabel(
+  grade:
+    BatteryGrade,
+
+  language:
+    Language
+) {
+  if (
+    language ===
+      "pt"
+  ) {
+    return grade ===
+      "new"
+      ? "Bateria nova"
+      : "Bateria ótima";
+  }
+
+  return grade ===
+    "new"
+    ? "New battery"
+    : "Optimal battery";
 }
 
 /* =========================================================
@@ -750,8 +1346,10 @@ function getProductFallbackPrice(
 async function sendOrderEmail({
   resendApiKey,
   fromEmail,
+
   customerEmail,
   customerName,
+
   customerCountry,
   customerStateRegion,
   customerCity,
@@ -759,64 +1357,176 @@ async function sendOrderEmail({
   customerHouseNumber,
   customerAddressLine2,
   customerPostalCode,
+
   orderNumber,
+
   productName,
   storage,
   color,
   condition,
+
+  refurbishedGrade,
+  batteryGrade,
+  batteryUpgradeAmount,
+
   quantity,
+
+  baseUnitPrice,
   unitPrice,
+  subtotalAmount,
+  shippingAmount,
   totalAmount,
+
   displayCurrency,
   displayUnitPrice,
+  displaySubtotalAmount,
+  displayShippingAmount,
   displayTotalAmount,
   exchangeRate,
+
   paymentReference,
+
   bank,
+
   language,
 }: {
-  resendApiKey: string;
-  fromEmail: string;
-  customerEmail: string;
-  customerName: string;
-  customerCountry: string;
-  customerStateRegion: string;
-  customerCity: string;
-  customerStreet: string;
-  customerHouseNumber: string;
-  customerAddressLine2: string;
-  customerPostalCode: string;
-  orderNumber: string;
-  productName: string;
+  resendApiKey:
+    string;
+
+  fromEmail:
+    string;
+
+  customerEmail:
+    string;
+
+  customerName:
+    string;
+
+  customerCountry:
+    string;
+
+  customerStateRegion:
+    string;
+
+  customerCity:
+    string;
+
+  customerStreet:
+    string;
+
+  customerHouseNumber:
+    string;
+
+  customerAddressLine2:
+    string;
+
+  customerPostalCode:
+    string;
+
+  orderNumber:
+    string;
+
+  productName:
+    string;
+
   storage:
     | string
     | null;
+
   color:
     | string
     | null;
+
   condition:
     SellCondition;
-  quantity: number;
-  unitPrice: number;
-  totalAmount: number;
+
+  refurbishedGrade:
+    | RefurbishedGrade
+    | null;
+
+  batteryGrade:
+    | BatteryGrade
+    | null;
+
+  batteryUpgradeAmount:
+    number;
+
+  quantity:
+    number;
+
+  baseUnitPrice:
+    number;
+
+  unitPrice:
+    number;
+
+  subtotalAmount:
+    number;
+
+  shippingAmount:
+    number;
+
+  totalAmount:
+    number;
+
   displayCurrency:
     DisplayCurrency;
+
   displayUnitPrice:
     number;
+
+  displaySubtotalAmount:
+    number;
+
+  displayShippingAmount:
+    number;
+
   displayTotalAmount:
     number;
+
   exchangeRate:
     number;
+
   paymentReference:
     string;
+
   bank:
     BankDetails;
+
   language:
     Language;
 }) {
+  const formattedBaseUnitPrice =
+    formatMoney(
+      baseUnitPrice,
+      SETTLEMENT_CURRENCY,
+      language
+    );
+
+  const formattedBatteryUpgrade =
+    formatMoney(
+      batteryUpgradeAmount,
+      SETTLEMENT_CURRENCY,
+      language
+    );
+
   const formattedUnitPrice =
     formatMoney(
       unitPrice,
+      SETTLEMENT_CURRENCY,
+      language
+    );
+
+  const formattedSubtotal =
+    formatMoney(
+      subtotalAmount,
+      SETTLEMENT_CURRENCY,
+      language
+    );
+
+  const formattedShipping =
+    formatMoney(
+      shippingAmount,
       SETTLEMENT_CURRENCY,
       language
     );
@@ -835,6 +1545,20 @@ async function sendOrderEmail({
       language
     );
 
+  const formattedDisplaySubtotal =
+    formatMoney(
+      displaySubtotalAmount,
+      displayCurrency,
+      language
+    );
+
+  const formattedDisplayShipping =
+    formatMoney(
+      displayShippingAmount,
+      displayCurrency,
+      language
+    );
+
   const formattedDisplayTotal =
     formatMoney(
       displayTotalAmount,
@@ -844,10 +1568,11 @@ async function sendOrderEmail({
 
   const showCveEquivalent =
     displayCurrency ===
-    "CVE";
+      "CVE";
 
   const conditionLabel =
-    language === "pt"
+    language ===
+      "pt"
       ? condition ===
           "refurbished"
         ? "Recondicionado"
@@ -856,6 +1581,22 @@ async function sendOrderEmail({
           "refurbished"
         ? "Refurbished"
         : "New";
+
+  const gradeLabel =
+    refurbishedGrade
+      ? getRefurbishedGradeLabel(
+          refurbishedGrade,
+          language
+        )
+      : null;
+
+  const batteryLabel =
+    batteryGrade
+      ? getBatteryGradeLabel(
+          batteryGrade,
+          language
+        )
+      : null;
 
   const safeCustomerName =
     escapeHtml(
@@ -916,6 +1657,20 @@ async function sendOrderEmail({
         )
       : "";
 
+  const safeGradeLabel =
+    gradeLabel
+      ? escapeHtml(
+          gradeLabel
+        )
+      : "";
+
+  const safeBatteryLabel =
+    batteryLabel
+      ? escapeHtml(
+          batteryLabel
+        )
+      : "";
+
   const textAddress =
     buildTextAddress({
       street:
@@ -965,9 +1720,42 @@ async function sendOrderEmail({
     });
 
   const subject =
-    language === "pt"
+    language ===
+      "pt"
       ? `Instruções de pagamento — ${orderNumber}`
       : `Payment instructions — ${orderNumber}`;
+
+  const refurbishedTextPt =
+    condition ===
+        "refurbished" &&
+      gradeLabel &&
+      batteryLabel
+      ? `
+Condição estética: ${gradeLabel}
+Bateria: ${batteryLabel}
+Preço base da configuração: ${formattedBaseUnitPrice}${
+  batteryUpgradeAmount > 0
+    ? `
+Upgrade de bateria: +${formattedBatteryUpgrade}`
+    : ""
+}`
+      : "";
+
+  const refurbishedTextEn =
+    condition ===
+        "refurbished" &&
+      gradeLabel &&
+      batteryLabel
+      ? `
+Cosmetic grade: ${gradeLabel}
+Battery: ${batteryLabel}
+Base configuration price: ${formattedBaseUnitPrice}${
+  batteryUpgradeAmount > 0
+    ? `
+Battery upgrade: +${formattedBatteryUpgrade}`
+    : ""
+}`
+      : "";
 
   const cveTextPt =
     showCveEquivalent
@@ -976,6 +1764,8 @@ async function sendOrderEmail({
 EQUIVALENTE APRESENTADO EM CVE
 
 Preço unitário: ${formattedDisplayUnit}
+Subtotal: ${formattedDisplaySubtotal}
+Envio: ${formattedDisplayShipping}
 Total: ${formattedDisplayTotal}
 Taxa: 1 EUR = ${exchangeRate} CVE
 
@@ -989,6 +1779,8 @@ Nota: o valor em CVE é apresentado para referência. A transferência bancária
 CVE DISPLAY EQUIVALENT
 
 Unit price: ${formattedDisplayUnit}
+Subtotal: ${formattedDisplaySubtotal}
+Shipping: ${formattedDisplayShipping}
 Total: ${formattedDisplayTotal}
 Rate: 1 EUR = ${exchangeRate} CVE
 
@@ -996,7 +1788,8 @@ Note: the CVE amount is shown for reference. The bank transfer for this order mu
       : "";
 
   const text =
-    language === "pt"
+    language ===
+      "pt"
       ? `POKAPOK
 
 Recebemos a sua encomenda.
@@ -1011,9 +1804,11 @@ Número: ${orderNumber}
 Produto: ${productName}
 ${storage ? `Armazenamento: ${storage}` : ""}
 ${color ? `Cor: ${color}` : ""}
-Condição: ${conditionLabel}
+Condição: ${conditionLabel}${refurbishedTextPt}
 Quantidade: ${quantity}
-Preço unitário: ${formattedUnitPrice}
+Preço unitário final: ${formattedUnitPrice}
+Subtotal: ${formattedSubtotal}
+Envio: ${formattedShipping}
 Total a transferir: ${formattedTotal}${cveTextPt}
 
 MORADA DE ENTREGA
@@ -1068,9 +1863,11 @@ Order number: ${orderNumber}
 Product: ${productName}
 ${storage ? `Storage: ${storage}` : ""}
 ${color ? `Colour: ${color}` : ""}
-Condition: ${conditionLabel}
+Condition: ${conditionLabel}${refurbishedTextEn}
 Quantity: ${quantity}
-Unit price: ${formattedUnitPrice}
+Final unit price: ${formattedUnitPrice}
+Subtotal: ${formattedSubtotal}
+Shipping: ${formattedShipping}
 Total to transfer: ${formattedTotal}${cveTextEn}
 
 DELIVERY ADDRESS
@@ -1114,48 +1911,160 @@ POKAPOK`;
 
   const equivalentHtml =
     showCveEquivalent
-      ? language === "pt"
+      ? language ===
+          "pt"
         ? `
           <div style="background:#eef4ff;border-radius:16px;padding:18px;margin:18px 0;border:1px solid #d7e5ff;">
             <div style="font-size:12px;font-weight:800;color:#5d6673;letter-spacing:.5px;">EQUIVALENTE EM CVE</div>
-            <div style="font-size:24px;font-weight:900;color:#1261ff;margin-top:6px;">${formattedDisplayTotal}</div>
-            <div style="font-size:13px;color:#5d6673;margin-top:8px;">Taxa: 1 EUR = ${exchangeRate} CVE</div>
-            <div style="font-size:13px;color:#5d6673;margin-top:6px;">O valor em CVE é informativo. A transferência deve ser feita em EUR.</div>
+
+            <div style="font-size:24px;font-weight:900;color:#1261ff;margin-top:6px;">
+              ${formattedDisplayTotal}
+            </div>
+
+            <div style="font-size:13px;color:#5d6673;margin-top:8px;">
+              Subtotal: ${formattedDisplaySubtotal}
+            </div>
+
+            <div style="font-size:13px;color:#5d6673;margin-top:4px;">
+              Envio: ${formattedDisplayShipping}
+            </div>
+
+            <div style="font-size:13px;color:#5d6673;margin-top:8px;">
+              Taxa: 1 EUR = ${exchangeRate} CVE
+            </div>
+
+            <div style="font-size:13px;color:#5d6673;margin-top:6px;">
+              O valor em CVE é informativo. A transferência deve ser feita em EUR.
+            </div>
           </div>`
         : `
           <div style="background:#eef4ff;border-radius:16px;padding:18px;margin:18px 0;border:1px solid #d7e5ff;">
             <div style="font-size:12px;font-weight:800;color:#5d6673;letter-spacing:.5px;">CVE DISPLAY EQUIVALENT</div>
-            <div style="font-size:24px;font-weight:900;color:#1261ff;margin-top:6px;">${formattedDisplayTotal}</div>
-            <div style="font-size:13px;color:#5d6673;margin-top:8px;">Rate: 1 EUR = ${exchangeRate} CVE</div>
-            <div style="font-size:13px;color:#5d6673;margin-top:6px;">The CVE amount is for reference. The bank transfer must be made in EUR.</div>
+
+            <div style="font-size:24px;font-weight:900;color:#1261ff;margin-top:6px;">
+              ${formattedDisplayTotal}
+            </div>
+
+            <div style="font-size:13px;color:#5d6673;margin-top:8px;">
+              Subtotal: ${formattedDisplaySubtotal}
+            </div>
+
+            <div style="font-size:13px;color:#5d6673;margin-top:4px;">
+              Shipping: ${formattedDisplayShipping}
+            </div>
+
+            <div style="font-size:13px;color:#5d6673;margin-top:8px;">
+              Rate: 1 EUR = ${exchangeRate} CVE
+            </div>
+
+            <div style="font-size:13px;color:#5d6673;margin-top:6px;">
+              The CVE amount is for reference. The bank transfer must be made in EUR.
+            </div>
           </div>`
       : "";
 
+  const refurbishedHtml =
+    condition ===
+        "refurbished" &&
+      gradeLabel &&
+      batteryLabel
+      ? `
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e2e4e8;">
+          <div>
+            <strong>${
+              language ===
+                "pt"
+                ? "Condição estética"
+                : "Cosmetic grade"
+            }:</strong>
+            ${safeGradeLabel}
+          </div>
+
+          <div style="margin-top:5px;">
+            <strong>${
+              language ===
+                "pt"
+                ? "Bateria"
+                : "Battery"
+            }:</strong>
+            ${safeBatteryLabel}
+          </div>
+
+          ${
+            batteryUpgradeAmount >
+            0
+              ? `
+                <div style="margin-top:5px;">
+                  <strong>${
+                    language ===
+                      "pt"
+                      ? "Upgrade de bateria"
+                      : "Battery upgrade"
+                  }:</strong>
+                  +${formattedBatteryUpgrade}
+                </div>
+              `
+              : ""
+          }
+        </div>
+      `
+      : "";
+
   const html =
-    language === "pt"
+    language ===
+      "pt"
       ? `
 <!doctype html>
 <html>
 <body style="margin:0;padding:0;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111;">
   <div style="max-width:620px;margin:0 auto;padding:32px 20px;">
     <div style="background:#fff;border-radius:24px;padding:30px;border:1px solid #e5e5e5;">
-      <div style="font-weight:900;letter-spacing:2px;color:#1261ff;margin-bottom:22px;">POKAPOK</div>
+      <div style="font-weight:900;letter-spacing:2px;color:#1261ff;margin-bottom:22px;">
+        POKAPOK
+      </div>
 
-      <h1 style="font-size:28px;margin:0 0 10px;">Recebemos a sua encomenda.</h1>
+      <h1 style="font-size:28px;margin:0 0 10px;">
+        Recebemos a sua encomenda.
+      </h1>
 
       <p style="color:#555;line-height:1.6;">
         Olá ${safeCustomerName}, use os dados abaixo para concluir o pagamento.
       </p>
 
       <div style="background:#f6f7f9;border-radius:16px;padding:18px;margin:22px 0;">
-        <strong>Encomenda ${safeOrderNumber}</strong><br><br>
-        ${safeProductName}<br>
-        ${safeStorage ? `${safeStorage}<br>` : ""}
-        ${safeColor ? `${safeColor}<br>` : ""}
-        ${conditionLabel}<br>
-        Quantidade: ${quantity}<br><br>
+        <strong>Encomenda ${safeOrderNumber}</strong>
 
-        <strong>Total a transferir: ${formattedTotal}</strong>
+        <br><br>
+
+        ${safeProductName}<br>
+
+        ${safeStorage ? `${safeStorage}<br>` : ""}
+
+        ${safeColor ? `${safeColor}<br>` : ""}
+
+        ${conditionLabel}<br>
+
+        ${refurbishedHtml}
+
+        <div style="margin-top:12px;">
+          Quantidade: ${quantity}
+        </div>
+
+        <div style="margin-top:5px;">
+          Preço unitário: ${formattedUnitPrice}
+        </div>
+
+        <div style="margin-top:5px;">
+          Subtotal: ${formattedSubtotal}
+        </div>
+
+        <div style="margin-top:5px;">
+          Envio: ${formattedShipping}
+        </div>
+
+        <div style="margin-top:12px;font-size:18px;">
+          <strong>Total a transferir: ${formattedTotal}</strong>
+        </div>
       </div>
 
       ${equivalentHtml}
@@ -1230,7 +2139,9 @@ POKAPOK`;
 <body style="margin:0;padding:0;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111;">
   <div style="max-width:620px;margin:0 auto;padding:32px 20px;">
     <div style="background:#fff;border-radius:24px;padding:30px;border:1px solid #e5e5e5;">
-      <div style="font-weight:900;letter-spacing:2px;color:#1261ff;margin-bottom:22px;">POKAPOK</div>
+      <div style="font-weight:900;letter-spacing:2px;color:#1261ff;margin-bottom:22px;">
+        POKAPOK
+      </div>
 
       <h1 style="font-size:28px;margin:0 0 10px;">
         We received your order.
@@ -1241,14 +2152,39 @@ POKAPOK`;
       </p>
 
       <div style="background:#f6f7f9;border-radius:16px;padding:18px;margin:22px 0;">
-        <strong>Order ${safeOrderNumber}</strong><br><br>
-        ${safeProductName}<br>
-        ${safeStorage ? `${safeStorage}<br>` : ""}
-        ${safeColor ? `${safeColor}<br>` : ""}
-        ${conditionLabel}<br>
-        Quantity: ${quantity}<br><br>
+        <strong>Order ${safeOrderNumber}</strong>
 
-        <strong>Total to transfer: ${formattedTotal}</strong>
+        <br><br>
+
+        ${safeProductName}<br>
+
+        ${safeStorage ? `${safeStorage}<br>` : ""}
+
+        ${safeColor ? `${safeColor}<br>` : ""}
+
+        ${conditionLabel}<br>
+
+        ${refurbishedHtml}
+
+        <div style="margin-top:12px;">
+          Quantity: ${quantity}
+        </div>
+
+        <div style="margin-top:5px;">
+          Unit price: ${formattedUnitPrice}
+        </div>
+
+        <div style="margin-top:5px;">
+          Subtotal: ${formattedSubtotal}
+        </div>
+
+        <div style="margin-top:5px;">
+          Shipping: ${formattedShipping}
+        </div>
+
+        <div style="margin-top:12px;font-size:18px;">
+          <strong>Total to transfer: ${formattedTotal}</strong>
+        </div>
       </div>
 
       ${equivalentHtml}
@@ -1367,11 +2303,16 @@ POKAPOK`;
 
 Deno.serve(
   async (
-    req: Request
+    req:
+      Request
   ) => {
+    /* =====================================================
+       CORS
+    ===================================================== */
+
     if (
       req.method ===
-      "OPTIONS"
+        "OPTIONS"
     ) {
       return new Response(
         "ok",
@@ -1384,13 +2325,17 @@ Deno.serve(
 
     if (
       req.method !==
-      "POST"
+        "POST"
     ) {
       return jsonResponse(
         {
-          success: false,
+          success:
+            false,
 
           error:
+            "METHOD_NOT_ALLOWED",
+
+          message:
             "Method not allowed.",
         },
         405
@@ -1398,9 +2343,9 @@ Deno.serve(
     }
 
     try {
-      /* =====================================================
+      /* ===================================================
          ENVIRONMENT
-      ===================================================== */
+      =================================================== */
 
       const supabaseUrl =
         Deno.env.get(
@@ -1482,7 +2427,8 @@ Deno.serve(
       if (
         !supabaseUrl
       ) {
-        throw new Error(
+        return serverError(
+          "SUPABASE_CONFIGURATION_MISSING",
           "SUPABASE_URL is not configured."
         );
       }
@@ -1490,7 +2436,8 @@ Deno.serve(
       if (
         !serviceRoleKey
       ) {
-        throw new Error(
+        return serverError(
+          "SUPABASE_CONFIGURATION_MISSING",
           "SUPABASE_SERVICE_ROLE_KEY is not configured."
         );
       }
@@ -1501,16 +2448,18 @@ Deno.serve(
         !bic ||
         !bankName
       ) {
-        throw new Error(
+        return serverError(
+          "BANK_CONFIGURATION_MISSING",
           "Bank transfer details are not fully configured."
         );
       }
 
       if (
         configuredBankCurrency !==
-        SETTLEMENT_CURRENCY
+          SETTLEMENT_CURRENCY
       ) {
-        throw new Error(
+        return serverError(
+          "INVALID_BANK_CURRENCY",
           "The current bank-transfer checkout must be configured in EUR."
         );
       }
@@ -1549,9 +2498,9 @@ Deno.serve(
           }
         );
 
-      /* =====================================================
+      /* ===================================================
          REQUEST BODY
-      ===================================================== */
+      =================================================== */
 
       let body:
         Record<
@@ -1564,9 +2513,14 @@ Deno.serve(
           await req.json();
       } catch {
         return badRequest(
+          "INVALID_JSON",
           "Invalid request body."
         );
       }
+
+      /* ===================================================
+         CUSTOMER
+      =================================================== */
 
       const customerName =
         cleanString(
@@ -1582,6 +2536,10 @@ Deno.serve(
         cleanString(
           body.customer_whatsapp
         );
+
+      /* ===================================================
+         DELIVERY
+      =================================================== */
 
       const customerCountry =
         cleanString(
@@ -1623,6 +2581,10 @@ Deno.serve(
           body.customer_notes
         );
 
+      /* ===================================================
+         PRODUCT
+      =================================================== */
+
       const productId =
         cleanString(
           body.product_id
@@ -1631,12 +2593,27 @@ Deno.serve(
       const variantId =
         cleanString(
           body.variant_id
-        ) || null;
+        ) ||
+        null;
 
       const conditionRaw =
         cleanString(
           body.condition
         ).toLowerCase();
+
+      const refurbishedGradeRaw =
+        cleanString(
+          body.refurbished_grade
+        );
+
+      const batteryGradeRaw =
+        cleanString(
+          body.battery_grade
+        );
+
+      /* ===================================================
+         ORDER / PAYMENT
+      =================================================== */
 
       const paymentMethod =
         cleanString(
@@ -1649,7 +2626,7 @@ Deno.serve(
         cleanString(
           body.language
         ).toLowerCase() ===
-        "en"
+          "en"
           ? "en"
           : "pt";
 
@@ -1661,32 +2638,18 @@ Deno.serve(
       const quantity =
         Number(
           body.quantity ??
-          1
+            1
         );
 
-      /* =====================================================
-         INPUT VALIDATION
-
-         REQUIRED:
-         - name
-         - WhatsApp / phone
-         - country
-         - island / state / region
-
-         OPTIONAL:
-         - email
-         - city
-         - street
-         - house number
-         - postal code
-         - address line 2
-         - notes
-      ===================================================== */
+      /* ===================================================
+         CUSTOMER VALIDATION
+      =================================================== */
 
       if (
         !customerName
       ) {
         return badRequest(
+          "CUSTOMER_NAME_REQUIRED",
           "Customer name is required."
         );
       }
@@ -1695,30 +2658,11 @@ Deno.serve(
         !customerWhatsapp
       ) {
         return badRequest(
+          "CUSTOMER_WHATSAPP_REQUIRED",
           "Customer phone or WhatsApp number is required."
         );
       }
 
-      if (
-        !customerCountry
-      ) {
-        return badRequest(
-          "Customer country is required."
-        );
-      }
-
-      if (
-        !customerStateRegion
-      ) {
-        return badRequest(
-          "Customer island, state or region is required."
-        );
-      }
-
-      /*
-       * Email is optional.
-       * Validate it only when supplied.
-       */
       if (
         customerEmail &&
         !isValidEmail(
@@ -1726,14 +2670,44 @@ Deno.serve(
         )
       ) {
         return badRequest(
+          "INVALID_CUSTOMER_EMAIL",
           "The customer email address is invalid."
         );
       }
+
+      /* ===================================================
+         DESTINATION VALIDATION
+      =================================================== */
+
+      const destination =
+        validateDestination(
+          customerCountry,
+          customerStateRegion
+        );
+
+      if (
+        !destination.valid
+      ) {
+        return badRequest(
+          destination.code,
+          destination.message
+        );
+      }
+
+      const shippingAmount =
+        roundMoney(
+          destination.shippingPrice
+        );
+
+      /* ===================================================
+         PRODUCT VALIDATION
+      =================================================== */
 
       if (
         !productId
       ) {
         return badRequest(
+          "PRODUCT_REQUIRED",
           "Product ID is required."
         );
       }
@@ -1745,16 +2719,8 @@ Deno.serve(
           "refurbished"
       ) {
         return badRequest(
+          "INVALID_CONDITION",
           "Invalid product condition."
-        );
-      }
-
-      if (
-        displayCurrency ===
-        null
-      ) {
-        return badRequest(
-          "Invalid display currency. Use CVE or EUR."
         );
       }
 
@@ -1766,29 +2732,113 @@ Deno.serve(
         !Number.isInteger(
           quantity
         ) ||
-        quantity < 1
+        quantity < 1 ||
+        quantity > 10
       ) {
         return badRequest(
-          "Quantity must be a positive whole number."
+          "INVALID_QUANTITY",
+          "Quantity must be a whole number between 1 and 10."
         );
       }
 
       if (
         paymentMethod !==
-        "bank_transfer"
+          "bank_transfer"
       ) {
         return badRequest(
+          "PAYMENT_METHOD_NOT_AVAILABLE",
           "Only bank transfer is currently available."
         );
       }
 
-      /* =====================================================
+      if (
+        displayCurrency ===
+          null
+      ) {
+        return badRequest(
+          "INVALID_DISPLAY_CURRENCY",
+          "Invalid display currency. Use CVE or EUR."
+        );
+      }
+
+      /* ===================================================
+         REFURBISHED CONFIGURATION VALIDATION
+      =================================================== */
+
+      let refurbishedGrade:
+        | RefurbishedGrade
+        | null =
+        null;
+
+      let batteryGrade:
+        | BatteryGrade
+        | null =
+        null;
+
+      if (
+        condition ===
+          "refurbished"
+      ) {
+        refurbishedGrade =
+          normalizeRefurbishedGrade(
+            refurbishedGradeRaw
+          );
+
+        batteryGrade =
+          normalizeBatteryGrade(
+            batteryGradeRaw
+          );
+
+        if (
+          !variantId
+        ) {
+          return badRequest(
+            "REFURBISHED_VARIANT_REQUIRED",
+            "A variant is required for a refurbished order."
+          );
+        }
+
+        if (
+          !refurbishedGrade
+        ) {
+          return badRequest(
+            "REFURBISHED_GRADE_REQUIRED",
+            "A valid refurbished cosmetic grade is required."
+          );
+        }
+
+        if (
+          !batteryGrade
+        ) {
+          return badRequest(
+            "BATTERY_GRADE_REQUIRED",
+            "A valid battery option is required."
+          );
+        }
+      } else {
+        /*
+         * Do not silently accept refurbished configuration
+         * attached to a new-product order.
+         */
+        if (
+          refurbishedGradeRaw ||
+          batteryGradeRaw
+        ) {
+          return badRequest(
+            "INVALID_REFURBISHED_CONFIGURATION",
+            "Refurbished grade and battery options cannot be used with a new product."
+          );
+        }
+      }
+
+      /* ===================================================
          PRODUCT
-      ===================================================== */
+      =================================================== */
 
       const {
         data:
           productData,
+
         error:
           productError,
       } =
@@ -1821,8 +2871,9 @@ Deno.serve(
           productError
         );
 
-        throw new Error(
-          `Could not load product: ${productError.message}`
+        return serverError(
+          "PRODUCT_QUERY_FAILED",
+          "Could not load product."
         );
       }
 
@@ -1830,6 +2881,7 @@ Deno.serve(
         !productData
       ) {
         return badRequest(
+          "PRODUCT_NOT_FOUND",
           "The selected product could not be found."
         );
       }
@@ -1843,6 +2895,7 @@ Deno.serve(
         !product.available
       ) {
         return badRequest(
+          "PRODUCT_UNAVAILABLE",
           "This product is currently unavailable."
         );
       }
@@ -1855,6 +2908,7 @@ Deno.serve(
         )
       ) {
         return badRequest(
+          "NEW_NOT_AVAILABLE",
           "This product is not available as new."
         );
       }
@@ -1867,13 +2921,14 @@ Deno.serve(
         )
       ) {
         return badRequest(
+          "REFURBISHED_NOT_AVAILABLE",
           "This product is not available refurbished."
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          VARIANT
-      ===================================================== */
+      =================================================== */
 
       let variant:
         | VariantRow
@@ -1886,6 +2941,7 @@ Deno.serve(
         const {
           data:
             variantData,
+
           error:
             variantError,
         } =
@@ -1900,14 +2956,32 @@ Deno.serve(
               color,
               sku,
               available,
+
               sale_price,
               promotional_price,
+
               refurbished_sale_price,
-              refurbished_promotional_price
+              refurbished_promotional_price,
+
+              refurbished_correct_sale_price,
+              refurbished_correct_promotional_price,
+
+              refurbished_good_sale_price,
+              refurbished_good_promotional_price,
+
+              refurbished_excellent_sale_price,
+              refurbished_excellent_promotional_price,
+
+              refurbished_premium_sale_price,
+              refurbished_premium_promotional_price
             `)
             .eq(
               "id",
               variantId
+            )
+            .eq(
+              "product_id",
+              product.id
             )
             .maybeSingle();
 
@@ -1919,8 +2993,9 @@ Deno.serve(
             variantError
           );
 
-          throw new Error(
-            `Could not load product variant: ${variantError.message}`
+          return serverError(
+            "VARIANT_QUERY_FAILED",
+            "Could not load product variant."
           );
         }
 
@@ -1928,6 +3003,7 @@ Deno.serve(
           !variantData
         ) {
           return badRequest(
+            "VARIANT_NOT_FOUND",
             "The selected product variant could not be found."
           );
         }
@@ -1937,74 +3013,135 @@ Deno.serve(
             VariantRow;
 
         if (
-          variant.product_id !==
-          product.id
-        ) {
-          return badRequest(
-            "The selected variant does not belong to this product."
-          );
-        }
-
-        if (
           !variant.available
         ) {
           return badRequest(
+            "VARIANT_UNAVAILABLE",
             "The selected product variant is currently unavailable."
           );
         }
       }
 
-      /* =====================================================
-         AUTHORITATIVE EUR PRICE
-      ===================================================== */
+      /* ===================================================
+         AUTHORITATIVE BASE PRICE
+      =================================================== */
 
-      let unitPrice:
+      let baseUnitPrice:
         number;
 
       try {
-        unitPrice =
+        baseUnitPrice =
           roundMoney(
-            variant
-              ? getVariantPrice(
-                  product,
-                  variant,
-                  condition
-                )
-              : getProductFallbackPrice(
-                  product,
-                  condition
-                )
+            getAuthoritativeBasePrice({
+              product,
+              variant,
+              condition,
+              refurbishedGrade,
+            })
           );
       } catch (
         error
       ) {
-        return badRequest(
-          error instanceof Error
+        const code =
+          error instanceof
+            Error
             ? error.message
-            : "Invalid product price."
+            : "PRICE_NOT_AVAILABLE";
+
+        const message =
+          code ===
+            "REFURBISHED_GRADE_PRICE_NOT_AVAILABLE"
+            ? "No valid price is configured for the selected refurbished cosmetic grade."
+            : code ===
+                "REFURBISHED_VARIANT_REQUIRED"
+              ? "A product variant is required for this refurbished configuration."
+              : code ===
+                  "REFURBISHED_GRADE_REQUIRED"
+                ? "A refurbished cosmetic grade is required."
+                : code ===
+                    "NEW_NOT_AVAILABLE"
+                  ? "This product is not available as new."
+                  : code ===
+                      "REFURBISHED_NOT_AVAILABLE"
+                    ? "This product is not available refurbished."
+                    : "The selected configuration does not have a valid price.";
+
+        return badRequest(
+          code,
+          message
         );
       }
 
       if (
         !Number.isFinite(
-          unitPrice
+          baseUnitPrice
         ) ||
-        unitPrice <= 0
+        baseUnitPrice <= 0
       ) {
         return badRequest(
+          "PRICE_NOT_AVAILABLE",
           "The selected configuration does not have a valid price."
         );
       }
 
-      const totalAmount =
+      /* ===================================================
+         BATTERY PRICE
+
+         Fixed business rule:
+         + €89 per refurbished device with a NEW battery.
+      =================================================== */
+
+      const batteryUpgradeAmount =
+        condition ===
+            "refurbished" &&
+          batteryGrade ===
+            "new"
+          ? NEW_BATTERY_UPGRADE_PRICE
+          : 0;
+
+      /* ===================================================
+         FINAL UNIT PRICE
+      =================================================== */
+
+      const unitPrice =
+        roundMoney(
+          baseUnitPrice +
+            batteryUpgradeAmount
+        );
+
+      /* ===================================================
+         SUBTOTAL
+
+         Battery upgrade is already included in unitPrice.
+         Therefore quantity correctly applies the upgrade once
+         per device.
+      =================================================== */
+
+      const subtotalAmount =
         roundMoney(
           unitPrice *
-          quantity
+            quantity
         );
+
+      /* ===================================================
+         FINAL TOTAL
+
+         Products + shipping.
+      =================================================== */
+
+      const totalAmount =
+        roundMoney(
+          subtotalAmount +
+            shippingAmount
+        );
+
+      /* ===================================================
+         DISPLAY CURRENCY
+      =================================================== */
 
       const exchangeRate =
         displayCurrency ===
-        "CVE"
+          "CVE"
           ? EUR_TO_CVE
           : 1;
 
@@ -2014,11 +3151,27 @@ Deno.serve(
           displayCurrency
         );
 
+      const displaySubtotalAmount =
+        convertEurForDisplay(
+          subtotalAmount,
+          displayCurrency
+        );
+
+      const displayShippingAmount =
+        convertEurForDisplay(
+          shippingAmount,
+          displayCurrency
+        );
+
       const displayTotalAmount =
         convertEurForDisplay(
           totalAmount,
           displayCurrency
         );
+
+      /* ===================================================
+         PRODUCT DISPLAY DATA
+      =================================================== */
 
       const productName =
         cleanString(
@@ -2026,22 +3179,24 @@ Deno.serve(
         );
 
       const storage =
-        variant?.storage
+        variant
+          ?.storage
           ? cleanString(
               variant.storage
             )
           : null;
 
       const color =
-        variant?.color
+        variant
+          ?.color
           ? cleanString(
               variant.color
             )
           : null;
 
-      /* =====================================================
+      /* ===================================================
          IDENTIFIERS
-      ===================================================== */
+      =================================================== */
 
       const orderNumber =
         createOrderNumber();
@@ -2049,13 +3204,14 @@ Deno.serve(
       const paymentReference =
         createPaymentReference();
 
-      /* =====================================================
+      /* ===================================================
          INSERT ORDER
-      ===================================================== */
+      =================================================== */
 
       const {
         data:
           order,
+
         error:
           insertError,
       } =
@@ -2064,18 +3220,19 @@ Deno.serve(
             "orders"
           )
           .insert({
+            /* ORDER */
+
             order_number:
               orderNumber,
 
             payment_reference:
               paymentReference,
 
+            /* CUSTOMER */
+
             customer_name:
               customerName,
 
-            /*
-             * Store NULL when no email was supplied.
-             */
             customer_email:
               customerEmail ||
               null,
@@ -2115,11 +3272,14 @@ Deno.serve(
 
             language,
 
+            /* PRODUCT */
+
             product_id:
               product.id,
 
             variant_id:
-              variant?.id ??
+              variant
+                ?.id ??
               null,
 
             product_name:
@@ -2131,10 +3291,45 @@ Deno.serve(
 
             condition,
 
+            refurbished_grade:
+              condition ===
+                "refurbished"
+                ? refurbishedGrade
+                : null,
+
+            battery_grade:
+              condition ===
+                "refurbished"
+                ? batteryGrade
+                : null,
+
+            battery_upgrade_amount:
+              batteryUpgradeAmount,
+
             quantity,
+
+            /* PRICING */
 
             unit_price:
               unitPrice,
+
+            subtotal:
+              subtotalAmount,
+
+            subtotal_amount:
+              subtotalAmount,
+
+            shipping_amount:
+              shippingAmount,
+
+            insurance_amount:
+              0,
+
+            discount_amount:
+              0,
+
+            total:
+              totalAmount,
 
             total_amount:
               totalAmount,
@@ -2154,6 +3349,8 @@ Deno.serve(
             exchange_rate:
               exchangeRate,
 
+            /* PAYMENT */
+
             payment_method:
               "bank_transfer",
 
@@ -2162,6 +3359,12 @@ Deno.serve(
 
             order_status:
               "pending",
+
+            status:
+              "pending",
+
+            source:
+              "website",
 
             payment_received_at:
               null,
@@ -2177,24 +3380,25 @@ Deno.serve(
           insertError
         );
 
-        throw new Error(
+        return serverError(
+          "ORDER_CREATE_FAILED",
           `Could not create order: ${insertError.message}`
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          EMAIL
 
-         Email is optional.
+         Email remains OPTIONAL.
 
          No email:
-         -> skip Resend completely
-         -> order remains successful
+         -> order succeeds
+         -> Resend is skipped
 
          Email supplied:
-         -> try Resend
-         -> order remains successful even if Resend fails
-      ===================================================== */
+         -> send confirmation
+         -> email failure never destroys the order
+      =================================================== */
 
       let emailSent =
         false;
@@ -2215,8 +3419,10 @@ Deno.serve(
             await sendOrderEmail({
               resendApiKey,
               fromEmail,
+
               customerEmail,
               customerName,
+
               customerCountry,
               customerStateRegion,
               customerCity,
@@ -2224,20 +3430,37 @@ Deno.serve(
               customerHouseNumber,
               customerAddressLine2,
               customerPostalCode,
+
               orderNumber,
+
               productName,
               storage,
               color,
               condition,
+
+              refurbishedGrade,
+              batteryGrade,
+              batteryUpgradeAmount,
+
               quantity,
+
+              baseUnitPrice,
               unitPrice,
+              subtotalAmount,
+              shippingAmount,
               totalAmount,
+
               displayCurrency,
               displayUnitPrice,
+              displaySubtotalAmount,
+              displayShippingAmount,
               displayTotalAmount,
               exchangeRate,
+
               paymentReference,
+
               bank,
+
               language,
             });
 
@@ -2259,17 +3482,14 @@ Deno.serve(
             "Order created, but email delivery is not configured.";
         }
       } else {
-        /*
-         * This is intentional and is NOT an error.
-         */
         console.log(
           "No customer email provided. Skipping confirmation email."
         );
       }
 
-      /* =====================================================
+      /* ===================================================
          SUCCESS
-      ===================================================== */
+      =================================================== */
 
       return jsonResponse({
         success:
@@ -2292,10 +3512,29 @@ Deno.serve(
           currency:
             SETTLEMENT_CURRENCY,
 
+          /*
+           * Price coming directly from the selected Supabase
+           * grade/new-device price before battery upgrade.
+           */
+          base_unit_price:
+            baseUnitPrice,
+
+          battery_upgrade_amount:
+            batteryUpgradeAmount,
+
+          /*
+           * Final per-device price including battery upgrade.
+           */
           unit_price:
             unitPrice,
 
           quantity,
+
+          subtotal_amount:
+            subtotalAmount,
+
+          shipping_amount:
+            shippingAmount,
 
           total_amount:
             totalAmount,
@@ -2306,11 +3545,79 @@ Deno.serve(
           display_unit_price:
             displayUnitPrice,
 
+          display_subtotal_amount:
+            displaySubtotalAmount,
+
+          display_shipping_amount:
+            displayShippingAmount,
+
           display_total_amount:
             displayTotalAmount,
 
           exchange_rate:
             exchangeRate,
+        },
+
+        shipping: {
+          country:
+            customerCountry,
+
+          state_region:
+            customerStateRegion,
+
+          amount:
+            shippingAmount,
+
+          currency:
+            SETTLEMENT_CURRENCY,
+        },
+
+        product: {
+          id:
+            product.id,
+
+          name:
+            product.name,
+
+          slug:
+            product.slug,
+
+          condition,
+
+          variant_id:
+            variant
+              ?.id ??
+            null,
+
+          storage:
+            variant
+              ?.storage ??
+            null,
+
+          color:
+            variant
+              ?.color ??
+            null,
+
+          sku:
+            variant
+              ?.sku ??
+            null,
+
+          refurbished_grade:
+            condition ===
+              "refurbished"
+              ? refurbishedGrade
+              : null,
+
+          battery_grade:
+            condition ===
+              "refurbished"
+              ? batteryGrade
+              : null,
+
+          battery_upgrade_amount:
+            batteryUpgradeAmount,
         },
 
         payment: {
@@ -2334,17 +3641,12 @@ Deno.serve(
         error
       );
 
-      return jsonResponse(
-        {
-          success:
-            false,
-
-          error:
-            error instanceof Error
-              ? error.message
-              : "Unexpected create-order error.",
-        },
-        500
+      return serverError(
+        "ORDER_CREATE_FAILED",
+        error instanceof
+          Error
+          ? error.message
+          : "Unexpected create-order error."
       );
     }
   }
