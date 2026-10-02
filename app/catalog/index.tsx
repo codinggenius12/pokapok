@@ -35,7 +35,7 @@ type ConditionFilter =
   | "all"
   | "new"
   | "refurbished"
-  | "used";
+  | "used"; 
 
 type PriceFilter =
   | "all"
@@ -522,14 +522,6 @@ export default function CatalogScreen() {
 
   /* =========================================================
      BRAND FROM URL
-
-     Allows links such as:
-     /catalog?brand=apple
-     /catalog?brand=samsung
-     /catalog?brand=all
-
-     The brand is only selected after the live catalogue has
-     loaded and the requested brand actually exists.
   ========================================================= */
 
   useEffect(() => {
@@ -582,12 +574,6 @@ export default function CatalogScreen() {
 
   /* =========================================================
      CONDITION FROM URL
-
-     Allows links such as:
-     /catalog?condition=new
-     /catalog?condition=refurbished
-     /catalog?condition=used
-     /catalog?condition=all
   ========================================================= */
 
   useEffect(() => {
@@ -640,12 +626,6 @@ export default function CatalogScreen() {
 
   /* =========================================================
      CATALOGUE DISPLAY PRICE
-
-     The price filter uses the same price that is shown on the
-     product card for the currently selected condition.
-
-     Pricing source of truth:
-     Supabase product_variants only.
   ========================================================= */
 
   function getCatalogItemPricing(
@@ -1082,6 +1062,11 @@ export default function CatalogScreen() {
 
   /* =========================================================
      FILTER PRODUCTS
+
+     Catalogue is always sorted from the lowest currently
+     displayed purchasable price to the highest.
+
+     Products without a valid price are placed last.
   ========================================================= */
 
   const filteredPhones =
@@ -1166,74 +1151,38 @@ export default function CatalogScreen() {
           }
         );
 
-      if (
-        requestedSort ===
-        "price-asc"
-      ) {
-        return filtered.sort(
-          (
-            a,
-            b
-          ) => {
-            const priceA =
-              getCatalogItemPricing(
-                a
-              ).activePrice ??
-              Number.POSITIVE_INFINITY;
+      return filtered.sort(
+        (
+          a,
+          b
+        ) => {
+          const priceA =
+            getCatalogItemPricing(
+              a
+            ).activePrice ??
+            Number.POSITIVE_INFINITY;
 
-            const priceB =
-              getCatalogItemPricing(
-                b
-              ).activePrice ??
-              Number.POSITIVE_INFINITY;
+          const priceB =
+            getCatalogItemPricing(
+              b
+            ).activePrice ??
+            Number.POSITIVE_INFINITY;
 
-            if (
-              priceA !==
-              priceB
-            ) {
-              return (
-                priceA -
-                priceB
-              );
-            }
-
-            return a.name.localeCompare(
-              b.name
-            );
-          }
-        );
-      }
-
-      if (
-        requestedSort ===
-        "price-desc"
-      ) {
-        return filtered.sort(
-          (
-            a,
-            b
-          ) => {
-            const priceA =
-              getCatalogItemPricing(
-                a
-              ).activePrice ??
-              Number.NEGATIVE_INFINITY;
-
-            const priceB =
-              getCatalogItemPricing(
-                b
-              ).activePrice ??
-              Number.NEGATIVE_INFINITY;
-
+          if (
+            priceA !==
+            priceB
+          ) {
             return (
-              priceB -
-              priceA
+              priceA -
+              priceB
             );
           }
-        );
-      }
 
-      return filtered;
+          return a.name.localeCompare(
+            b.name
+          );
+        }
+      );
     }, [
       catalogItems,
       brand,
@@ -1242,7 +1191,6 @@ export default function CatalogScreen() {
       query,
       variantsByProductId,
       maxPriceFromUrl,
-      requestedSort,
     ]);
 
   const hasActiveFilters =
@@ -1342,71 +1290,28 @@ export default function CatalogScreen() {
     }
   }
 
-
   /* =========================================================
      MOBILE GROUPS
 
-     On mobile the catalogue is grouped by brand so customers
-     can browse sideways instead of scrolling through one long
-     vertical stack of product cards.
+     Mobile uses one globally price-sorted carousel so that
+     the cheapest filtered product is always shown first.
   ========================================================= */
 
   const mobileGroups =
     useMemo(() => {
-      if (
-        requestedSort ===
-        "price-asc" ||
-        requestedSort ===
-        "price-desc"
-      ) {
-        return [
-          [
-            language === "pt"
-              ? "preço"
-              : "price",
-            filteredPhones,
-          ] as [
-            string,
-            CatalogItem[],
-          ],
-        ];
-      }
-
-      const groups =
-        new Map<
+      return [
+        [
+          language === "pt"
+            ? "preço"
+            : "price",
+          filteredPhones,
+        ] as [
           string,
-          CatalogItem[]
-        >();
-
-      filteredPhones.forEach(
-        (item) => {
-          const key =
-            item.brand
-              .trim()
-              .toLowerCase() ||
-            "other";
-
-          const current =
-            groups.get(key) ?? [];
-
-          current.push(item);
-
-          groups.set(
-            key,
-            current
-          );
-        }
-      );
-
-      return Array.from(
-        groups.entries()
-      ).sort(
-        ([a], [b]) =>
-          a.localeCompare(b)
-      );
+          CatalogItem[],
+        ],
+      ];
     }, [
       filteredPhones,
-      requestedSort,
       language,
     ]);
 
@@ -1445,13 +1350,6 @@ export default function CatalogScreen() {
         item
       );
 
-    /*
-     * CONDITION BADGES
-     *
-     * These describe every condition enabled for the product
-     * in Supabase, not merely the condition currently being
-     * used to calculate the card price.
-     */
     const cardConditions:
       Array<
         "new" |
@@ -1465,10 +1363,6 @@ export default function CatalogScreen() {
               live
             );
 
-    /*
-     * AVAILABILITY SOURCE OF TRUTH:
-     * Supabase product + product_variants availability flags.
-     */
     const availableFromSupabase =
       Boolean(
         live.published &&
@@ -1477,10 +1371,6 @@ export default function CatalogScreen() {
           0
       );
 
-    /*
-     * Purchasability is stricter than availability:
-     * a valid price must exist for the condition being shown.
-     */
     const purchasable =
       Boolean(
         availableFromSupabase &&
@@ -2049,7 +1939,6 @@ export default function CatalogScreen() {
     );
   }
 
-
   /* =========================================================
      RENDER
   ========================================================= */
@@ -2090,10 +1979,6 @@ export default function CatalogScreen() {
           backHref="/"
         />
       </View>
-
-      {/* =====================================================
-          COMPACT HERO
-      ===================================================== */}
 
       <View
         style={[
@@ -2200,10 +2085,6 @@ export default function CatalogScreen() {
           </Text>
         ) : null}
       </View>
-
-      {/* =====================================================
-          SEARCH + COLLAPSIBLE FILTERS
-      ===================================================== */}
 
       <View
         style={[
@@ -2342,8 +2223,6 @@ export default function CatalogScreen() {
                 styles.filterGroupsMobile,
             ]}
           >
-            {/* BRAND */}
-
             <View
               style={[
                 styles.filterGroup,
@@ -2417,8 +2296,6 @@ export default function CatalogScreen() {
                 )}
               </ScrollView>
             </View>
-
-            {/* CONDITION */}
 
             <View
               style={[
@@ -2500,8 +2377,6 @@ export default function CatalogScreen() {
                 )}
               </ScrollView>
             </View>
-
-            {/* PRICE */}
 
             <View
               style={[
@@ -2586,10 +2461,6 @@ export default function CatalogScreen() {
           </View>
         ) : null}
       </View>
-
-      {/* =====================================================
-          CATALOG
-      ===================================================== */}
 
       {loadingProducts ? (
         <View
