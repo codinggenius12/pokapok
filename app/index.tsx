@@ -42,14 +42,9 @@ type ConditionOption =
   | "refurbished";
 
 type ParsedSearch = {
-  raw:
-    string;
-
-  text:
-    string;
-
-  maxPrice:
-    number | null;
+  raw: string;
+  text: string;
+  maxPrice: number | null;
 
   requestedCondition:
     | PublicSellCondition
@@ -854,24 +849,154 @@ export default function HomeScreen() {
       : null;
   }
 
+  /*
+   * Finds the lowest available price for a brand across
+   * BOTH new and refurbished configurations.
+   *
+   * All prices come from Supabase variants.
+   */
+  function getLowestBrandPrice(
+    brand: string
+  ): number | null {
+    const normalizedBrand =
+      brand
+        .trim()
+        .toLowerCase();
+
+    const prices:
+      number[] = [];
+
+    for (
+      const product of
+      liveProducts
+    ) {
+      if (
+        !product.published ||
+        !product.available
+      ) {
+        continue;
+      }
+
+      if (
+        product.brand
+          .trim()
+          .toLowerCase() !==
+        normalizedBrand
+      ) {
+        continue;
+      }
+
+      const sellConditions =
+        getProductSellConditions(
+          product
+        );
+
+      const variants =
+        variantsByProductId[
+          product.id
+        ] ?? [];
+
+      for (
+        const variant of
+        variants
+      ) {
+        if (
+          !variant.available
+        ) {
+          continue;
+        }
+
+        /* NEW */
+
+        if (
+          sellConditions.includes(
+            "new"
+          )
+        ) {
+          const normalPrice =
+            variant.sale_price;
+
+          const promotionalPrice =
+            variant.promotional_price;
+
+          if (
+            normalPrice !==
+              null &&
+            Number.isFinite(
+              normalPrice
+            ) &&
+            normalPrice >
+              0
+          ) {
+            const activePrice =
+              promotionalPrice !==
+                null &&
+              Number.isFinite(
+                promotionalPrice
+              ) &&
+              promotionalPrice >
+                0 &&
+              promotionalPrice <
+                normalPrice
+                ? promotionalPrice
+                : normalPrice;
+
+            prices.push(
+              activePrice
+            );
+          }
+        }
+
+        /* REFURBISHED */
+
+        if (
+          sellConditions.includes(
+            "refurbished"
+          )
+        ) {
+          const refurbishedPrice =
+            getLowestPublicVariantRefurbishedGradePrice(
+              variant
+            );
+
+          if (
+            refurbishedPrice !==
+              null &&
+            Number.isFinite(
+              refurbishedPrice
+            ) &&
+            refurbishedPrice >
+              0
+          ) {
+            prices.push(
+              refurbishedPrice
+            );
+          }
+        }
+      }
+    }
+
+    return prices.length >
+      0
+      ? Math.min(
+          ...prices
+        )
+      : null;
+  }
+
   /* =======================================================
      FEATURED DATA
   ======================================================= */
 
-  const lowestRefurbishedPrice =
-    getLowestStorePrice({
-      condition:
-        "refurbished",
-    });
+  const lowestIphonePrice =
+    getLowestBrandPrice(
+      "apple"
+    );
 
-  const lowestNewIphonePrice =
-    getLowestStorePrice({
-      brand:
-        "apple",
-
-      condition:
-        "new",
-    });
+  const lowestSamsungPrice =
+    getLowestBrandPrice(
+      "samsung"
+    );
 
   const sortedFeaturedPhones =
     [...phones].sort(
@@ -888,7 +1013,7 @@ export default function HomeScreen() {
       (
         phone
       ) =>
-        getHomepagePrice(
+        getLowestPhonePrice(
           phone.slug
         ) !==
         null
@@ -896,18 +1021,87 @@ export default function HomeScreen() {
     sortedFeaturedPhones[0] ??
     phones[0];
 
-  const featuredRefurbishedIphone =
-    sortedFeaturedPhones.find(
-      (
-        phone
-      ) =>
-        phone.brand ===
-          "apple" &&
-        getHomepageRefurbishedPrice(
-          phone.slug
-        ) !==
-          null
-    ) ??
+  /*
+   * First ad:
+   * pick an actual phone whose live lowest price is <= €300.
+   *
+   * Cheapest qualifying device is preferred.
+   */
+  const featuredBudgetPhone =
+    [...phones]
+      .filter(
+        (
+          phone
+        ) => {
+          const price =
+            getLowestPhonePrice(
+              phone.slug
+            );
+
+          return (
+            price !==
+              null &&
+            price <= 300
+          );
+        }
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          (
+            getLowestPhonePrice(
+              a.slug
+            ) ??
+            Number.POSITIVE_INFINITY
+          ) -
+          (
+            getLowestPhonePrice(
+              b.slug
+            ) ??
+            Number.POSITIVE_INFINITY
+          )
+      )[0] ??
+    featuredPhone;
+
+  /*
+   * iPhone visual:
+   * cheapest iPhone available in the local visual catalogue.
+   * The displayed banner price itself is still calculated
+   * directly from all live Supabase products.
+   */
+  const featuredIphone =
+    [...phones]
+      .filter(
+        (
+          phone
+        ) =>
+          phone.brand ===
+            "apple" &&
+          getLowestPhonePrice(
+            phone.slug
+          ) !==
+            null
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          (
+            getLowestPhonePrice(
+              a.slug
+            ) ??
+            Number.POSITIVE_INFINITY
+          ) -
+          (
+            getLowestPhonePrice(
+              b.slug
+            ) ??
+            Number.POSITIVE_INFINITY
+          )
+      )[0] ??
     sortedFeaturedPhones.find(
       (
         phone
@@ -917,39 +1111,41 @@ export default function HomeScreen() {
     ) ??
     featuredPhone;
 
-  const featuredNewIphone =
-    sortedFeaturedPhones.find(
-      (
-        phone
-      ) =>
-        phone.brand ===
-          "apple" &&
-        getHomepagePrice(
-          phone.slug
-        ) !==
-          null
-    ) ??
-    sortedFeaturedPhones.find(
-      (
-        phone
-      ) =>
-        phone.brand ===
-        "apple"
-    ) ??
-    featuredPhone;
-
+  /*
+   * Samsung visual:
+   * cheapest Samsung available in local phone visuals.
+   */
   const featuredSamsung =
-    sortedFeaturedPhones.find(
-      (
-        phone
-      ) =>
-        phone.brand ===
-          "samsung" &&
-        getHomepagePrice(
-          phone.slug
-        ) !==
-          null
-    ) ??
+    [...phones]
+      .filter(
+        (
+          phone
+        ) =>
+          phone.brand ===
+            "samsung" &&
+          getLowestPhonePrice(
+            phone.slug
+          ) !==
+            null
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          (
+            getLowestPhonePrice(
+              a.slug
+            ) ??
+            Number.POSITIVE_INFINITY
+          ) -
+          (
+            getLowestPhonePrice(
+              b.slug
+            ) ??
+            Number.POSITIVE_INFINITY
+          )
+      )[0] ??
     sortedFeaturedPhones.find(
       (
         phone
@@ -958,13 +1154,6 @@ export default function HomeScreen() {
         "samsung"
     ) ??
     featuredPhone;
-
-  const featuredSamsungPrice =
-    featuredSamsung
-      ? getHomepagePrice(
-          featuredSamsung.slug
-        )
-      : null;
 
   const promoCardWidth =
     isMobile
@@ -981,17 +1170,17 @@ export default function HomeScreen() {
     language ===
       "pt"
       ? {
-          refurbishedKicker:
-            "RECONDICIONADOS",
+          budgetKicker:
+            "ATÉ 300 €",
 
-          refurbishedTitle:
-            "Smartphones desde",
+          budgetTitle:
+            "Smartphones até 300 €",
 
-          refurbishedBody:
-            "Equipamentos verificados, testados e prontos para uma segunda vida.",
+          budgetBody:
+            "Descubra equipamentos acessíveis, novos e recondicionados, do mais barato ao mais caro.",
 
-          refurbishedAction:
-            "Ver recondicionados",
+          budgetAction:
+            "Ver até 300 €",
 
           iphoneKicker:
             "IPHONE",
@@ -1000,7 +1189,7 @@ export default function HomeScreen() {
             "iPhone desde",
 
           iphoneBody:
-            "Descubra iPhones novos com preços atualizados diretamente da POKAPOK.",
+            "Descubra todos os iPhones novos e recondicionados disponíveis na POKAPOK.",
 
           iphoneAction:
             "Ver iPhones",
@@ -1009,26 +1198,26 @@ export default function HomeScreen() {
             "SAMSUNG",
 
           samsungTitle:
-            "Galaxy em destaque.",
+            "Galaxy desde",
 
           samsungBody:
-            "Descubra os Samsung selecionados pela POKAPOK.",
+            "Descubra Samsung novos e recondicionados com preços atualizados diretamente da POKAPOK.",
 
           samsungAction:
             "Ver Samsung",
         }
       : {
-          refurbishedKicker:
-            "REFURBISHED",
+          budgetKicker:
+            "UNDER €300",
 
-          refurbishedTitle:
-            "Smartphones from",
+          budgetTitle:
+            "Phones under €300",
 
-          refurbishedBody:
-            "Verified, tested devices ready for a second life.",
+          budgetBody:
+            "Discover affordable new and refurbished phones, ordered from cheapest to most expensive.",
 
-          refurbishedAction:
-            "Shop refurbished",
+          budgetAction:
+            "Shop under €300",
 
           iphoneKicker:
             "IPHONE",
@@ -1037,7 +1226,7 @@ export default function HomeScreen() {
             "iPhone from",
 
           iphoneBody:
-            "Discover new iPhones with live prices from POKAPOK.",
+            "Discover all new and refurbished iPhones available at POKAPOK.",
 
           iphoneAction:
             "Shop iPhones",
@@ -1046,10 +1235,10 @@ export default function HomeScreen() {
             "SAMSUNG",
 
           samsungTitle:
-            "Featured Galaxy phones.",
+            "Galaxy from",
 
           samsungBody:
-            "Discover Samsung devices selected by POKAPOK.",
+            "Discover new and refurbished Samsung phones with live POKAPOK pricing.",
 
           samsungAction:
             "View Samsung",
@@ -2088,6 +2277,10 @@ export default function HomeScreen() {
         ]}
         keyboardShouldPersistTaps="handled"
       >
+        {/* =================================================
+            MOBILE HEADER
+        ================================================= */}
+
         {isMobile ? (
           <View
             style={
@@ -2278,6 +2471,10 @@ export default function HomeScreen() {
           </View>
         ) : (
           <>
+            {/* =============================================
+                DESKTOP UTILITY BAR
+            ============================================= */}
+
             <View
               style={
                 styles.utilityBar
@@ -2363,6 +2560,10 @@ export default function HomeScreen() {
                 </View>
               </View>
             </View>
+
+            {/* =============================================
+                DESKTOP HEADER
+            ============================================= */}
 
             <View
               style={
@@ -2481,6 +2682,10 @@ export default function HomeScreen() {
             </View>
           </>
         )}
+
+        {/* =================================================
+            BRAND + CONDITION FILTERS
+        ================================================= */}
 
         <View
           style={[
@@ -2639,6 +2844,10 @@ export default function HomeScreen() {
           </ScrollView>
         </View>
 
+        {/* =================================================
+            PROMOTION BANNERS
+        ================================================= */}
+
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={
@@ -2662,9 +2871,13 @@ export default function HomeScreen() {
             styles.promoCarousel
           }
         >
+          {/* ===============================================
+              PHONES UNDER €300
+          =============================================== */}
+
           <Link
             href={
-              "/catalog?condition=refurbished" as any
+              "/catalog?maxPrice=300&sort=price-asc" as any
             }
             asChild
           >
@@ -2690,7 +2903,7 @@ export default function HomeScreen() {
                     }
                   >
                     {
-                      promoCopy.refurbishedKicker
+                      promoCopy.budgetKicker
                     }
                   </Text>
 
@@ -2703,7 +2916,7 @@ export default function HomeScreen() {
                     }
                   >
                     {
-                      promoCopy.refurbishedTitle
+                      promoCopy.budgetTitle
                     }
                   </Text>
 
@@ -2716,7 +2929,7 @@ export default function HomeScreen() {
                     }
                   >
                     {
-                      promoCopy.refurbishedBody
+                      promoCopy.budgetBody
                     }
                   </Text>
                 </View>
@@ -2732,10 +2945,10 @@ export default function HomeScreen() {
                         styles.promoPriceLabel
                       }
                     >
-                      {
-                        t.common
-                          .from
-                      }
+                      {language ===
+                      "pt"
+                        ? "ATÉ"
+                        : "UNDER"}
                     </Text>
 
                     <Text
@@ -2743,12 +2956,9 @@ export default function HomeScreen() {
                         styles.promoPrice
                       }
                     >
-                      {lowestRefurbishedPrice !==
-                      null
-                        ? formatPrice(
-                            lowestRefurbishedPrice
-                          )
-                        : "—"}
+                      {formatPrice(
+                        300
+                      )}
                     </Text>
                   </View>
 
@@ -2763,7 +2973,7 @@ export default function HomeScreen() {
                       }
                     >
                       {
-                        promoCopy.refurbishedAction
+                        promoCopy.budgetAction
                       }
                     </Text>
                   </View>
@@ -2778,7 +2988,7 @@ export default function HomeScreen() {
               >
                 <PhoneVisual
                   phone={
-                    featuredRefurbishedIphone
+                    featuredBudgetPhone
                   }
                   variant="card"
                 />
@@ -2786,9 +2996,13 @@ export default function HomeScreen() {
             </Pressable>
           </Link>
 
+          {/* ===============================================
+              ALL IPHONES — NEW + REFURBISHED
+          =============================================== */}
+
           <Link
             href={
-              "/catalog?brand=apple&condition=new" as any
+              "/catalog?brand=apple&sort=price-asc" as any
             }
             asChild
           >
@@ -2869,10 +3083,10 @@ export default function HomeScreen() {
                         styles.promoPriceLight
                       }
                     >
-                      {lowestNewIphonePrice !==
+                      {lowestIphonePrice !==
                       null
                         ? formatPrice(
-                            lowestNewIphonePrice
+                            lowestIphonePrice
                           )
                         : "—"}
                     </Text>
@@ -2904,7 +3118,7 @@ export default function HomeScreen() {
               >
                 <PhoneVisual
                   phone={
-                    featuredNewIphone
+                    featuredIphone
                   }
                   variant="card"
                 />
@@ -2912,9 +3126,13 @@ export default function HomeScreen() {
             </Pressable>
           </Link>
 
+          {/* ===============================================
+              SAMSUNG — LIVE LOWEST PRICE
+          =============================================== */}
+
           <Link
             href={
-              "/catalog?brand=samsung" as any
+              "/catalog?brand=samsung&sort=price-asc" as any
             }
             asChild
           >
@@ -2998,10 +3216,10 @@ export default function HomeScreen() {
                         styles.promoPrice
                       }
                     >
-                      {featuredSamsungPrice !==
+                      {lowestSamsungPrice !==
                       null
                         ? formatPrice(
-                            featuredSamsungPrice
+                            lowestSamsungPrice
                           )
                         : "—"}
                     </Text>
@@ -3048,6 +3266,10 @@ export default function HomeScreen() {
             </Pressable>
           </Link>
         </ScrollView>
+
+        {/* =================================================
+            DESKTOP TRUST + STATEMENT
+        ================================================= */}
 
         {!isMobile ? (
           <>
@@ -3186,6 +3408,10 @@ export default function HomeScreen() {
             </View>
           </>
         ) : null}
+
+        {/* =================================================
+            PRODUCT SECTION HEADER
+        ================================================= */}
 
         {isMobile ? (
           <View
@@ -3328,6 +3554,10 @@ export default function HomeScreen() {
           </View>
         )}
 
+        {/* =================================================
+            PRODUCTS
+        ================================================= */}
+
         {filteredPhones.length ===
         0 ? (
           <View
@@ -3421,18 +3651,37 @@ export default function HomeScreen() {
                             styles.availabilityPills
                           }
                         >
-                          <Text
-                            style={
-                              styles.availabilityPill
-                            }
-                          >
-                            {phone.condition ===
+                          {phoneSupportsCondition(
+                            phone.slug,
                             "new"
-                              ? t.product
+                          ) ? (
+                            <Text
+                              style={
+                                styles.availabilityPill
+                              }
+                            >
+                              {
+                                t.product
                                   .new
-                              : t.product
-                                  .refurbished}
-                          </Text>
+                              }
+                            </Text>
+                          ) : null}
+
+                          {phoneSupportsCondition(
+                            phone.slug,
+                            "refurbished"
+                          ) ? (
+                            <Text
+                              style={
+                                styles.availabilityPill
+                              }
+                            >
+                              {
+                                t.product
+                                  .refurbished
+                              }
+                            </Text>
+                          ) : null}
                         </View>
                       </View>
 
@@ -3860,130 +4109,72 @@ export default function HomeScreen() {
 const styles =
   StyleSheet.create({
     safeScreen: {
-      flex:
-        1,
-
+      flex: 1,
       backgroundColor:
         colors.bg,
     },
 
     screen: {
-      flex:
-        1,
-
+      flex: 1,
       backgroundColor:
         colors.bg,
     },
 
     content: {
-      width:
-        "100%",
-
-      maxWidth:
-        1280,
-
-      alignSelf:
-        "center",
-
-      paddingBottom:
-        56,
+      width: "100%",
+      maxWidth: 1280,
+      alignSelf: "center",
+      paddingBottom: 56,
     },
 
     contentMobile: {
-      maxWidth:
-        undefined,
-
-      paddingBottom:
-        36,
+      maxWidth: undefined,
+      paddingBottom: 36,
     },
 
     utilityBar: {
-      paddingHorizontal:
-        24,
-
-      paddingTop:
-        12,
-
-      paddingBottom:
-        6,
-
-      flexDirection:
-        "row",
-
+      paddingHorizontal: 24,
+      paddingTop: 12,
+      paddingBottom: 6,
+      flexDirection: "row",
       justifyContent:
         "space-between",
-
-      alignItems:
-        "center",
-
-      gap:
-        12,
-
-      zIndex:
-        200,
+      alignItems: "center",
+      gap: 12,
+      zIndex: 200,
     },
 
     utilityText: {
       color:
         colors.ink40,
-
-      fontSize:
-        12,
-
-      fontWeight:
-        "800",
+      fontSize: 12,
+      fontWeight: "800",
     },
 
     utilityControls: {
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
-      gap:
-        8,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
     },
 
     languageSelector: {
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
+      flexDirection: "row",
+      alignItems: "center",
       backgroundColor:
         colors.white,
-
-      borderWidth:
-        1,
-
+      borderWidth: 1,
       borderColor:
         colors.ink12,
-
-      borderRadius:
-        999,
-
-      padding:
-        3,
+      borderRadius: 999,
+      padding: 3,
     },
 
     languageButton: {
-      minWidth:
-        38,
-
-      paddingHorizontal:
-        10,
-
-      paddingVertical:
-        6,
-
-      borderRadius:
-        999,
-
-      alignItems:
-        "center",
-
+      minWidth: 38,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 999,
+      alignItems: "center",
       justifyContent:
         "center",
     },
@@ -3996,12 +4187,8 @@ const styles =
     languageButtonText: {
       color:
         colors.ink40,
-
-      fontSize:
-        11,
-
-      fontWeight:
-        "900",
+      fontSize: 11,
+      fontWeight: "900",
     },
 
     languageButtonTextActive: {
@@ -4010,433 +4197,219 @@ const styles =
     },
 
     topbar: {
-      paddingHorizontal:
-        24,
-
-      paddingVertical:
-        16,
-
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
-      gap:
-        18,
-
+      paddingHorizontal: 24,
+      paddingVertical: 16,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 18,
       backgroundColor:
         colors.bg,
-
-      zIndex:
-        150,
+      zIndex: 150,
     },
 
     brandRow: {
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
-      gap:
-        11,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 11,
     },
 
     mark: {
-      width:
-        34,
-
-      height:
-        34,
-
-      borderRadius:
-        12,
-
+      width: 34,
+      height: 34,
+      borderRadius: 12,
       backgroundColor:
         colors.ink,
-
-      alignItems:
-        "center",
-
+      alignItems: "center",
       justifyContent:
         "center",
     },
 
     markInner: {
-      width:
-        14,
-
-      height:
-        14,
-
-      borderRadius:
-        5,
-
+      width: 14,
+      height: 14,
+      borderRadius: 5,
       backgroundColor:
         colors.blue,
     },
 
     logo: {
-      fontSize:
-        22,
-
-      fontWeight:
-        "900",
-
+      fontSize: 22,
+      fontWeight: "900",
       color:
         colors.blue,
-
-      letterSpacing:
-        -1.2,
+      letterSpacing: -1.2,
     },
 
     logoSub: {
-      fontSize:
-        9,
-
-      fontWeight:
-        "900",
-
+      fontSize: 9,
+      fontWeight: "900",
       color:
         colors.ink40,
-
-      letterSpacing:
-        2.4,
-
-      marginTop:
-        -3,
+      letterSpacing: 2.4,
+      marginTop: -3,
     },
 
     searchExperience: {
-      flex:
-        1,
-
-      minWidth:
-        0,
-
-      position:
-        "relative",
-
-      zIndex:
-        1000,
+      flex: 1,
+      minWidth: 0,
+      position: "relative",
+      zIndex: 1000,
     },
 
     searchExperienceMobile: {
-      flex:
-        1,
-
-      width:
-        "100%",
+      flex: 1,
+      width: "100%",
     },
 
     searchBox: {
-      width:
-        "100%",
-
-      minHeight:
-        52,
-
+      width: "100%",
+      minHeight: 52,
       backgroundColor:
         colors.white,
-
-      borderRadius:
-        999,
-
-      borderWidth:
-        1,
-
+      borderRadius: 999,
+      borderWidth: 1,
       borderColor:
         colors.ink12,
-
-      paddingHorizontal:
-        18,
-
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
-      gap:
-        10,
+      paddingHorizontal: 18,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
     },
 
     searchBoxFocused: {
       borderColor:
         colors.blue,
-
-      shadowColor:
-        "#000",
-
-      shadowOpacity:
-        0.08,
-
-      shadowRadius:
-        16,
-
+      shadowColor: "#000",
+      shadowOpacity: 0.08,
+      shadowRadius: 16,
       shadowOffset: {
-        width:
-          0,
-
-        height:
-          6,
+        width: 0,
+        height: 6,
       },
     },
 
     searchIcon: {
       color:
         colors.ink,
-
-      fontSize:
-        22,
-
-      fontWeight:
-        "900",
-
-      flexShrink:
-        0,
+      fontSize: 22,
+      fontWeight: "900",
+      flexShrink: 0,
     },
 
     searchInput: {
-      flex:
-        1,
-
-      minWidth:
-        0,
-
+      flex: 1,
+      minWidth: 0,
       color:
         colors.ink,
-
-      fontSize:
-        15,
-
+      fontSize: 15,
       outlineStyle:
         "none" as any,
     },
 
     searchClearButton: {
-      width:
-        32,
-
-      height:
-        32,
-
-      borderRadius:
-        16,
-
+      width: 32,
+      height: 32,
+      borderRadius: 16,
       backgroundColor:
         colors.bg,
-
-      alignItems:
-        "center",
-
+      alignItems: "center",
       justifyContent:
         "center",
-
-      flexShrink:
-        0,
+      flexShrink: 0,
     },
 
     searchClearText: {
       color:
         colors.ink70,
-
-      fontSize:
-        23,
-
-      lineHeight:
-        25,
-
-      fontWeight:
-        "600",
-
-      marginTop:
-        -2,
+      fontSize: 23,
+      lineHeight: 25,
+      fontWeight: "600",
+      marginTop: -2,
     },
 
     searchPanel: {
-      position:
-        "absolute",
-
-      top:
-        58,
-
-      left:
-        0,
-
-      right:
-        0,
-
+      position: "absolute",
+      top: 58,
+      left: 0,
+      right: 0,
       backgroundColor:
         colors.white,
-
-      borderWidth:
-        1,
-
+      borderWidth: 1,
       borderColor:
         colors.ink12,
-
-      borderRadius:
-        20,
-
-      paddingHorizontal:
-        10,
-
-      paddingTop:
-        8,
-
-      paddingBottom:
-        10,
-
-      zIndex:
-        9999,
-
-      shadowColor:
-        "#000",
-
-      shadowOpacity:
-        0.1,
-
-      shadowRadius:
-        20,
-
+      borderRadius: 20,
+      paddingHorizontal: 10,
+      paddingTop: 8,
+      paddingBottom: 10,
+      zIndex: 9999,
+      shadowColor: "#000",
+      shadowOpacity: 0.1,
+      shadowRadius: 20,
       shadowOffset: {
-        width:
-          0,
-
-        height:
-          10,
+        width: 0,
+        height: 10,
       },
     },
 
     searchPanelMobile: {
-      top:
-        50,
-
-      borderRadius:
-        18,
-
-      paddingHorizontal:
-        8,
-
-      paddingTop:
-        7,
-
-      paddingBottom:
-        8,
-
-      minWidth:
-        280,
-
-      right:
-        -54,
+      top: 50,
+      borderRadius: 18,
+      paddingHorizontal: 8,
+      paddingTop: 7,
+      paddingBottom: 8,
+      minWidth: 280,
+      right: -54,
     },
 
     searchPanelHeader: {
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
+      flexDirection: "row",
+      alignItems: "center",
       justifyContent:
         "space-between",
-
-      paddingHorizontal:
-        6,
-
-      paddingTop:
-        2,
-
-      paddingBottom:
-        5,
+      paddingHorizontal: 6,
+      paddingTop: 2,
+      paddingBottom: 5,
     },
 
     searchPanelTitle: {
       color:
         colors.ink40,
-
-      fontSize:
-        9,
-
-      lineHeight:
-        12,
-
-      fontWeight:
-        "900",
-
-      letterSpacing:
-        1.2,
-
-      paddingHorizontal:
-        5,
-
-      paddingVertical:
-        3,
+      fontSize: 9,
+      lineHeight: 12,
+      fontWeight: "900",
+      letterSpacing: 1.2,
+      paddingHorizontal: 5,
+      paddingVertical: 3,
     },
 
     searchResultCount: {
-      minWidth:
-        20,
-
-      height:
-        20,
-
-      borderRadius:
-        10,
-
+      minWidth: 20,
+      height: 20,
+      borderRadius: 10,
       backgroundColor:
         colors.bg,
-
       color:
         colors.ink70,
-
-      textAlign:
-        "center",
-
-      lineHeight:
-        20,
-
-      fontSize:
-        9,
-
-      fontWeight:
-        "900",
-
-      overflow:
-        "hidden",
+      textAlign: "center",
+      lineHeight: 20,
+      fontSize: 9,
+      fontWeight: "900",
+      overflow: "hidden",
     },
 
     searchSuggestionList: {
-      gap:
-        1,
+      gap: 1,
     },
 
     searchSuggestionItem: {
-      width:
-        "100%",
-
-      minHeight:
-        54,
-
-      borderRadius:
-        14,
-
-      paddingHorizontal:
-        10,
-
-      paddingVertical:
-        7,
-
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
-      gap:
-        10,
+      width: "100%",
+      minHeight: 54,
+      borderRadius: 14,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
     },
 
     searchSuggestionItemPressed: {
@@ -4445,12 +4418,8 @@ const styles =
     },
 
     searchSuggestionInfo: {
-      flex:
-        1,
-
-      minWidth:
-        0,
-
+      flex: 1,
+      minWidth: 0,
       justifyContent:
         "center",
     },
@@ -4458,81 +4427,45 @@ const styles =
     searchSuggestionBrand: {
       color:
         colors.blue,
-
-      fontSize:
-        7,
-
-      lineHeight:
-        9,
-
-      letterSpacing:
-        1,
-
-      fontWeight:
-        "900",
+      fontSize: 7,
+      lineHeight: 9,
+      letterSpacing: 1,
+      fontWeight: "900",
     },
 
     searchSuggestionName: {
       color:
         colors.ink,
-
-      fontSize:
-        13,
-
-      lineHeight:
-        16,
-
-      fontWeight:
-        "900",
-
-      marginTop:
-        1,
+      fontSize: 13,
+      lineHeight: 16,
+      fontWeight: "900",
+      marginTop: 1,
     },
 
     searchSuggestionMeta: {
       color:
         colors.ink40,
-
-      fontSize:
-        9,
-
-      lineHeight:
-        12,
-
-      fontWeight:
-        "700",
-
-      marginTop:
-        2,
+      fontSize: 9,
+      lineHeight: 12,
+      fontWeight: "700",
+      marginTop: 2,
     },
 
     searchSuggestionPriceArea: {
       alignItems:
         "flex-end",
-
       justifyContent:
         "center",
-
-      minWidth:
-        64,
-
-      flexShrink:
-        0,
+      minWidth: 64,
+      flexShrink: 0,
     },
 
     searchSuggestionFrom: {
       color:
         colors.ink40,
-
-      fontSize:
-        7,
-
-      lineHeight:
-        9,
-
-      fontWeight:
-        "900",
-
+      fontSize: 7,
+      lineHeight: 9,
+      fontWeight: "900",
       textTransform:
         "uppercase",
     },
@@ -4540,70 +4473,37 @@ const styles =
     searchSuggestionPrice: {
       color:
         colors.blue,
-
-      fontSize:
-        13,
-
-      lineHeight:
-        16,
-
-      fontWeight:
-        "900",
-
-      marginTop:
-        1,
+      fontSize: 13,
+      lineHeight: 16,
+      fontWeight: "900",
+      marginTop: 1,
     },
 
     searchSuggestionUnavailable: {
       color:
         colors.ink40,
-
-      fontSize:
-        16,
-
-      fontWeight:
-        "900",
+      fontSize: 16,
+      fontWeight: "900",
     },
 
     searchSuggestionArrow: {
       color:
         colors.ink40,
-
-      fontSize:
-        11,
-
-      lineHeight:
-        13,
-
-      fontWeight:
-        "900",
-
-      marginTop:
-        1,
+      fontSize: 11,
+      lineHeight: 13,
+      fontWeight: "900",
+      marginTop: 1,
     },
 
     searchSeeResultsButton: {
-      minHeight:
-        40,
-
-      marginTop:
-        6,
-
-      borderRadius:
-        13,
-
+      minHeight: 40,
+      marginTop: 6,
+      borderRadius: 13,
       backgroundColor:
         colors.ink,
-
-      paddingHorizontal:
-        12,
-
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
+      paddingHorizontal: 12,
+      flexDirection: "row",
+      alignItems: "center",
       justifyContent:
         "space-between",
     },
@@ -4611,120 +4511,66 @@ const styles =
     searchSeeResultsText: {
       color:
         colors.white,
-
-      fontSize:
-        11,
-
-      fontWeight:
-        "900",
+      fontSize: 11,
+      fontWeight: "900",
     },
 
     searchSeeResultsArrow: {
       color:
         colors.white,
-
-      fontSize:
-        14,
-
-      fontWeight:
-        "900",
+      fontSize: 14,
+      fontWeight: "900",
     },
 
     quickSearchGrid: {
-      flexDirection:
-        "row",
-
-      flexWrap:
-        "wrap",
-
-      gap:
-        6,
-
-      paddingHorizontal:
-        4,
-
-      paddingBottom:
-        2,
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 6,
+      paddingHorizontal: 4,
+      paddingBottom: 2,
     },
 
     quickSearchChip: {
-      minHeight:
-        36,
-
-      paddingHorizontal:
-        10,
-
-      borderRadius:
-        999,
-
+      minHeight: 36,
+      paddingHorizontal: 10,
+      borderRadius: 999,
       backgroundColor:
         colors.bg,
-
-      borderWidth:
-        1,
-
+      borderWidth: 1,
       borderColor:
         colors.ink12,
-
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
-      gap:
-        6,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
     },
 
     quickSearchIcon: {
       color:
         colors.blue,
-
-      fontSize:
-        11,
-
-      fontWeight:
-        "900",
+      fontSize: 11,
+      fontWeight: "900",
     },
 
     quickSearchText: {
       color:
         colors.ink,
-
-      fontSize:
-        10,
-
-      fontWeight:
-        "900",
+      fontSize: 10,
+      fontWeight: "900",
     },
 
     searchEmptyState: {
-      paddingVertical:
-        18,
-
-      paddingHorizontal:
-        14,
-
-      alignItems:
-        "center",
+      paddingVertical: 18,
+      paddingHorizontal: 14,
+      alignItems: "center",
     },
 
     searchEmptyIcon: {
-      width:
-        40,
-
-      height:
-        40,
-
-      borderRadius:
-        20,
-
+      width: 40,
+      height: 40,
+      borderRadius: 20,
       backgroundColor:
         colors.bg,
-
-      alignItems:
-        "center",
-
+      alignItems: "center",
       justifyContent:
         "center",
     },
@@ -4732,70 +4578,37 @@ const styles =
     searchEmptyIconText: {
       color:
         colors.ink,
-
-      fontSize:
-        20,
-
-      fontWeight:
-        "900",
+      fontSize: 20,
+      fontWeight: "900",
     },
 
     searchEmptyTitle: {
       color:
         colors.ink,
-
-      fontSize:
-        14,
-
-      lineHeight:
-        18,
-
-      fontWeight:
-        "900",
-
-      marginTop:
-        9,
-
-      textAlign:
-        "center",
+      fontSize: 14,
+      lineHeight: 18,
+      fontWeight: "900",
+      marginTop: 9,
+      textAlign: "center",
     },
 
     searchEmptyDescription: {
       color:
         colors.ink40,
-
-      fontSize:
-        10,
-
-      lineHeight:
-        15,
-
-      marginTop:
-        4,
-
-      textAlign:
-        "center",
+      fontSize: 10,
+      lineHeight: 15,
+      marginTop: 4,
+      textAlign: "center",
     },
 
     searchEmptyButton: {
-      minHeight:
-        36,
-
-      marginTop:
-        10,
-
-      paddingHorizontal:
-        14,
-
-      borderRadius:
-        999,
-
+      minHeight: 36,
+      marginTop: 10,
+      paddingHorizontal: 14,
+      borderRadius: 999,
       backgroundColor:
         colors.ink,
-
-      alignItems:
-        "center",
-
+      alignItems: "center",
       justifyContent:
         "center",
     },
@@ -4803,194 +4616,104 @@ const styles =
     searchEmptyButtonText: {
       color:
         colors.white,
-
-      fontSize:
-        10,
-
-      fontWeight:
-        "900",
+      fontSize: 10,
+      fontWeight: "900",
     },
 
     topActions: {
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
-      gap:
-        14,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 14,
     },
 
     helpText: {
       color:
         colors.ink,
-
-      fontWeight:
-        "900",
+      fontWeight: "900",
     },
 
     cartButton: {
       backgroundColor:
         colors.white,
-
-      borderWidth:
-        1,
-
+      borderWidth: 1,
       borderColor:
         colors.ink12,
-
-      paddingHorizontal:
-        15,
-
-      paddingVertical:
-        11,
-
-      borderRadius:
-        999,
-
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
-      gap:
-        8,
+      paddingHorizontal: 15,
+      paddingVertical: 11,
+      borderRadius: 999,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
     },
 
     cartButtonText: {
       color:
         colors.ink,
-
-      fontWeight:
-        "900",
+      fontWeight: "900",
     },
 
     cartBadge: {
-      minWidth:
-        20,
-
-      height:
-        20,
-
-      borderRadius:
-        10,
-
+      minWidth: 20,
+      height: 20,
+      borderRadius: 10,
       backgroundColor:
         colors.blue,
-
       color:
         colors.white,
-
-      textAlign:
-        "center",
-
-      lineHeight:
-        20,
-
-      fontSize:
-        12,
-
-      fontWeight:
-        "900",
-
-      overflow:
-        "hidden",
+      textAlign: "center",
+      lineHeight: 20,
+      fontSize: 12,
+      fontWeight: "900",
+      overflow: "hidden",
     },
 
     combinedFilterSection: {
-      paddingHorizontal:
-        24,
-
-      paddingTop:
-        8,
-
-      paddingBottom:
-        14,
-
-      zIndex:
-        1,
+      paddingHorizontal: 24,
+      paddingTop: 8,
+      paddingBottom: 14,
+      zIndex: 1,
     },
 
     combinedFilterSectionMobile: {
-      paddingHorizontal:
-        16,
-
-      paddingTop:
-        2,
-
-      paddingBottom:
-        12,
+      paddingHorizontal: 16,
+      paddingTop: 2,
+      paddingBottom: 12,
     },
 
     combinedFilterRail: {
-      alignItems:
-        "center",
-
-      gap:
-        8,
-
-      paddingRight:
-        8,
+      alignItems: "center",
+      gap: 8,
+      paddingRight: 8,
     },
 
     combinedFilterLabel: {
       color:
         colors.ink40,
-
-      fontSize:
-        10,
-
-      lineHeight:
-        14,
-
-      fontWeight:
-        "900",
-
-      letterSpacing:
-        1.2,
-
-      paddingHorizontal:
-        2,
+      fontSize: 10,
+      lineHeight: 14,
+      fontWeight: "900",
+      letterSpacing: 1.2,
+      paddingHorizontal: 2,
     },
 
     combinedFilterDivider: {
-      width:
-        1,
-
-      height:
-        26,
-
+      width: 1,
+      height: 26,
       backgroundColor:
         colors.ink12,
-
-      marginHorizontal:
-        4,
+      marginHorizontal: 4,
     },
 
     brandNavigationPill: {
-      minHeight:
-        40,
-
-      paddingHorizontal:
-        16,
-
-      borderRadius:
-        999,
-
+      minHeight: 40,
+      paddingHorizontal: 16,
+      borderRadius: 999,
       backgroundColor:
         colors.white,
-
-      borderWidth:
-        1,
-
+      borderWidth: 1,
       borderColor:
         colors.ink12,
-
-      alignItems:
-        "center",
-
+      alignItems: "center",
       justifyContent:
         "center",
     },
@@ -4998,7 +4721,6 @@ const styles =
     brandNavigationPillAll: {
       backgroundColor:
         colors.ink,
-
       borderColor:
         colors.ink,
     },
@@ -5006,12 +4728,8 @@ const styles =
     brandNavigationText: {
       color:
         colors.ink70,
-
-      fontSize:
-        12,
-
-      fontWeight:
-        "900",
+      fontSize: 12,
+      fontWeight: "900",
     },
 
     brandNavigationTextAll: {
@@ -5020,50 +4738,28 @@ const styles =
     },
 
     promoCarousel: {
-      marginBottom:
-        0,
+      marginBottom: 0,
     },
 
     promoCarouselContent: {
-      paddingHorizontal:
-        16,
-
-      paddingTop:
-        6,
-
-      paddingBottom:
-        26,
-
-      gap:
-        12,
+      paddingHorizontal: 16,
+      paddingTop: 6,
+      paddingBottom: 26,
+      gap: 12,
     },
 
     promoCarouselContentDesktop: {
-      paddingHorizontal:
-        24,
-
-      paddingTop:
-        12,
-
-      paddingBottom:
-        30,
+      paddingHorizontal: 24,
+      paddingTop: 12,
+      paddingBottom: 30,
     },
 
     promoCard: {
-      height:
-        238,
-
-      borderRadius:
-        28,
-
-      overflow:
-        "hidden",
-
-      position:
-        "relative",
-
-      padding:
-        20,
+      height: 238,
+      borderRadius: 28,
+      overflow: "hidden",
+      position: "relative",
+      padding: 20,
     },
 
     promoCardPurple: {
@@ -5082,49 +4778,32 @@ const styles =
     },
 
     promoCardSamsung: {
-      paddingRight:
-        18,
+      paddingRight: 18,
     },
 
     promoCopySamsung: {
-      width:
-        "62%",
+      width: "62%",
     },
 
     promoTitleSamsung: {
-      fontSize:
-        27,
-
-      lineHeight:
-        28,
-
-      letterSpacing:
-        -1.1,
-
-      maxWidth:
-        190,
+      fontSize: 27,
+      lineHeight: 28,
+      letterSpacing: -1.1,
+      maxWidth: 190,
     },
 
     promoBodySamsung: {
-      maxWidth:
-        175,
+      maxWidth: 175,
     },
 
     promoBottomSamsung: {
-      paddingRight:
-        2,
+      paddingRight: 2,
     },
 
     promoCopy: {
-      width:
-        "68%",
-
-      height:
-        "100%",
-
-      zIndex:
-        2,
-
+      width: "68%",
+      height: "100%",
+      zIndex: 2,
       justifyContent:
         "space-between",
     },
@@ -5132,55 +4811,29 @@ const styles =
     promoKicker: {
       color:
         colors.ink,
-
-      fontSize:
-        10,
-
-      lineHeight:
-        14,
-
-      fontWeight:
-        "900",
-
-      letterSpacing:
-        1.7,
+      fontSize: 10,
+      lineHeight: 14,
+      fontWeight: "900",
+      letterSpacing: 1.7,
     },
 
     promoTitle: {
       color:
         colors.ink,
-
-      fontSize:
-        30,
-
-      lineHeight:
-        30,
-
-      fontWeight:
-        "900",
-
-      letterSpacing:
-        -1.5,
-
-      marginTop:
-        7,
+      fontSize: 30,
+      lineHeight: 30,
+      fontWeight: "900",
+      letterSpacing: -1.5,
+      marginTop: 7,
     },
 
     promoBody: {
       color:
         colors.ink,
-
-      opacity:
-        0.7,
-
-      fontSize:
-        13,
-
-      lineHeight:
-        18,
-
-      marginTop:
-        8,
+      opacity: 0.7,
+      fontSize: 13,
+      lineHeight: 18,
+      marginTop: 8,
     },
 
     promoTextLight: {
@@ -5191,47 +4844,27 @@ const styles =
     promoBodyLight: {
       color:
         "rgba(255,255,255,0.68)",
-
-      fontSize:
-        13,
-
-      lineHeight:
-        18,
-
-      marginTop:
-        8,
+      fontSize: 13,
+      lineHeight: 18,
+      marginTop: 8,
     },
 
     promoBottom: {
-      flexDirection:
-        "row",
-
+      flexDirection: "row",
       alignItems:
         "flex-end",
-
       justifyContent:
         "space-between",
-
-      gap:
-        8,
-
-      marginTop:
-        "auto",
+      gap: 8,
+      marginTop: "auto",
     },
 
     promoPriceLabel: {
       color:
         colors.ink,
-
-      opacity:
-        0.55,
-
-      fontSize:
-        9,
-
-      fontWeight:
-        "900",
-
+      opacity: 0.55,
+      fontSize: 9,
+      fontWeight: "900",
       textTransform:
         "uppercase",
     },
@@ -5239,30 +4872,17 @@ const styles =
     promoPrice: {
       color:
         colors.ink,
-
-      fontSize:
-        21,
-
-      fontWeight:
-        "900",
-
-      letterSpacing:
-        -0.8,
-
-      marginTop:
-        1,
+      fontSize: 21,
+      fontWeight: "900",
+      letterSpacing: -0.8,
+      marginTop: 1,
     },
 
     promoPriceLabelLight: {
       color:
         "rgba(255,255,255,0.5)",
-
-      fontSize:
-        9,
-
-      fontWeight:
-        "900",
-
+      fontSize: 9,
+      fontWeight: "900",
       textTransform:
         "uppercase",
     },
@@ -5270,36 +4890,19 @@ const styles =
     promoPriceLight: {
       color:
         colors.white,
-
-      fontSize:
-        21,
-
-      fontWeight:
-        "900",
-
-      letterSpacing:
-        -0.8,
-
-      marginTop:
-        1,
+      fontSize: 21,
+      fontWeight: "900",
+      letterSpacing: -0.8,
+      marginTop: 1,
     },
 
     promoActionDark: {
-      minHeight:
-        36,
-
-      paddingHorizontal:
-        12,
-
-      borderRadius:
-        999,
-
+      minHeight: 36,
+      paddingHorizontal: 12,
+      borderRadius: 999,
       backgroundColor:
         colors.ink,
-
-      alignItems:
-        "center",
-
+      alignItems: "center",
       justifyContent:
         "center",
     },
@@ -5307,30 +4910,17 @@ const styles =
     promoActionDarkText: {
       color:
         colors.white,
-
-      fontSize:
-        10,
-
-      fontWeight:
-        "900",
+      fontSize: 10,
+      fontWeight: "900",
     },
 
     promoActionLight: {
-      minHeight:
-        36,
-
-      paddingHorizontal:
-        12,
-
-      borderRadius:
-        999,
-
+      minHeight: 36,
+      paddingHorizontal: 12,
+      borderRadius: 999,
       backgroundColor:
         colors.white,
-
-      alignItems:
-        "center",
-
+      alignItems: "center",
       justifyContent:
         "center",
     },
@@ -5338,36 +4928,19 @@ const styles =
     promoActionLightText: {
       color:
         colors.ink,
-
-      fontSize:
-        10,
-
-      fontWeight:
-        "900",
+      fontSize: 10,
+      fontWeight: "900",
     },
 
     promoPhoneWrap: {
-      position:
-        "absolute",
-
-      right:
-        -42,
-
-      bottom:
-        -68,
-
-      width:
-        190,
-
-      height:
-        250,
-
-      alignItems:
-        "center",
-
+      position: "absolute",
+      right: -42,
+      bottom: -68,
+      width: 190,
+      height: 250,
+      alignItems: "center",
       justifyContent:
         "center",
-
       transform: [
         {
           rotate:
@@ -5378,24 +4951,14 @@ const styles =
             0.78,
         },
       ],
-
-      opacity:
-        0.98,
+      opacity: 0.98,
     },
 
     promoPhoneWrapSamsung: {
-      right:
-        -48,
-
-      bottom:
-        -70,
-
-      width:
-        210,
-
-      height:
-        270,
-
+      right: -48,
+      bottom: -70,
+      width: 210,
+      height: 270,
       transform: [
         {
           rotate:
@@ -5409,198 +4972,100 @@ const styles =
     },
 
     samsungVisualHalo: {
-      position:
-        "absolute",
-
-      width:
-        190,
-
-      height:
-        190,
-
-      borderRadius:
-        999,
-
+      position: "absolute",
+      width: 190,
+      height: 190,
+      borderRadius: 999,
       backgroundColor:
         "rgba(255,255,255,0.24)",
     },
 
     trustStrip: {
-      marginHorizontal:
-        24,
-
-      marginTop:
-        12,
-
-      marginBottom:
-        46,
-
+      marginHorizontal: 24,
+      marginTop: 12,
+      marginBottom: 46,
       backgroundColor:
         colors.white,
-
-      borderRadius:
-        20,
-
-      borderWidth:
-        1,
-
+      borderRadius: 20,
+      borderWidth: 1,
       borderColor:
         colors.ink12,
-
-      padding:
-        14,
-
-      flexDirection:
-        "row",
-
-      flexWrap:
-        "wrap",
-
-      gap:
-        12,
-
+      padding: 14,
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 12,
       justifyContent:
         "space-between",
-
-      shadowColor:
-        "#000",
-
-      shadowOpacity:
-        0.08,
-
-      shadowRadius:
-        24,
-
+      shadowColor: "#000",
+      shadowOpacity: 0.08,
+      shadowRadius: 24,
       shadowOffset: {
-        width:
-          0,
-
-        height:
-          14,
+        width: 0,
+        height: 14,
       },
     },
 
     trustItem: {
-      flexGrow:
-        1,
-
-      flexBasis:
-        220,
-
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
-      gap:
-        10,
-
-      paddingHorizontal:
-        10,
-
-      paddingVertical:
-        8,
+      flexGrow: 1,
+      flexBasis: 220,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
     },
 
     trustIcon: {
-      width:
-        30,
-
-      height:
-        30,
-
-      borderRadius:
-        15,
-
+      width: 30,
+      height: 30,
+      borderRadius: 15,
       backgroundColor:
         colors.bg,
-
-      textAlign:
-        "center",
-
-      lineHeight:
-        30,
-
+      textAlign: "center",
+      lineHeight: 30,
       color:
         colors.ink,
-
-      fontWeight:
-        "900",
-
-      overflow:
-        "hidden",
+      fontWeight: "900",
+      overflow: "hidden",
     },
 
     trustText: {
       color:
         colors.ink,
-
-      fontWeight:
-        "900",
+      fontWeight: "900",
     },
 
     statement: {
-      paddingHorizontal:
-        24,
-
-      alignItems:
-        "center",
-
-      marginBottom:
-        48,
+      paddingHorizontal: 24,
+      alignItems: "center",
+      marginBottom: 48,
     },
 
     statementTitle: {
       color:
         colors.ink,
-
-      fontSize:
-        48,
-
-      lineHeight:
-        54,
-
-      fontWeight:
-        "900",
-
-      letterSpacing:
-        -2,
-
-      textAlign:
-        "center",
-
-      maxWidth:
-        900,
+      fontSize: 48,
+      lineHeight: 54,
+      fontWeight: "900",
+      letterSpacing: -2,
+      textAlign: "center",
+      maxWidth: 900,
     },
 
     statementText: {
       color:
         colors.ink70,
-
-      fontSize:
-        18,
-
-      marginTop:
-        10,
-
-      textAlign:
-        "center",
+      fontSize: 18,
+      marginTop: 10,
+      textAlign: "center",
     },
 
     sectionHeader: {
-      paddingHorizontal:
-        24,
-
-      marginBottom:
-        18,
-
-      flexDirection:
-        "row",
-
+      paddingHorizontal: 24,
+      marginBottom: 18,
+      flexDirection: "row",
       alignItems:
         "flex-end",
-
       justifyContent:
         "space-between",
     },
@@ -5608,241 +5073,132 @@ const styles =
     sectionEyebrow: {
       color:
         colors.blue,
-
-      fontSize:
-        11,
-
-      fontWeight:
-        "900",
-
-      letterSpacing:
-        1.8,
-
-      marginBottom:
-        6,
+      fontSize: 11,
+      fontWeight: "900",
+      letterSpacing: 1.8,
+      marginBottom: 6,
     },
 
     sectionTitle: {
-      fontSize:
-        34,
-
-      fontWeight:
-        "900",
-
+      fontSize: 34,
+      fontWeight: "900",
       color:
         colors.ink,
-
-      letterSpacing:
-        -1.3,
+      letterSpacing: -1.3,
     },
 
     sectionSubText: {
       color:
         colors.ink40,
-
-      fontSize:
-        13,
-
-      fontWeight:
-        "800",
-
-      marginTop:
-        4,
+      fontSize: 13,
+      fontWeight: "800",
+      marginTop: 4,
     },
 
     sectionLink: {
       color:
         colors.blue,
-
-      fontWeight:
-        "900",
+      fontWeight: "900",
     },
 
     emptyState: {
-      marginHorizontal:
-        24,
-
+      marginHorizontal: 24,
       backgroundColor:
         colors.white,
-
-      borderWidth:
-        1,
-
+      borderWidth: 1,
       borderColor:
         colors.ink12,
-
-      borderRadius:
-        24,
-
-      padding:
-        26,
+      borderRadius: 24,
+      padding: 26,
     },
 
     emptyTitle: {
       color:
         colors.ink,
-
-      fontSize:
-        22,
-
-      fontWeight:
-        "900",
+      fontSize: 22,
+      fontWeight: "900",
     },
 
     emptyText: {
       color:
         colors.ink70,
-
-      marginTop:
-        6,
+      marginTop: 6,
     },
 
     mobileProductScroll: {
-      marginTop:
-        0,
-
-      marginBottom:
-        2,
+      marginTop: 0,
+      marginBottom: 2,
     },
 
     mobileProductRail: {
-      paddingHorizontal:
-        16,
-
-      paddingBottom:
-        14,
-
-      gap:
-        12,
+      paddingHorizontal: 16,
+      paddingBottom: 14,
+      gap: 12,
     },
 
     cardMobileRail: {
-      flexGrow:
-        0,
-
-      flexBasis:
-        "auto",
-
-      maxWidth:
-        undefined,
-
-      minHeight:
-        0,
-
-      height:
-        332,
-
-      borderRadius:
-        24,
-
-      padding:
-        14,
+      flexGrow: 0,
+      flexBasis: "auto",
+      maxWidth: undefined,
+      minHeight: 0,
+      height: 332,
+      borderRadius: 24,
+      padding: 14,
     },
 
     phoneStageRail: {
-      height:
-        160,
-
-      marginBottom:
-        6,
+      height: 160,
+      marginBottom: 6,
     },
 
     cardNameRail: {
       color:
         colors.ink,
-
-      fontSize:
-        19,
-
-      lineHeight:
-        22,
-
-      fontWeight:
-        "900",
-
-      letterSpacing:
-        -0.6,
-
-      marginTop:
-        2,
+      fontSize: 19,
+      lineHeight: 22,
+      fontWeight: "900",
+      letterSpacing: -0.6,
+      marginTop: 2,
     },
 
     cardSpecRail: {
       color:
         colors.ink40,
-
-      fontSize:
-        11,
-
-      lineHeight:
-        15,
-
-      marginTop:
-        4,
+      fontSize: 11,
+      lineHeight: 15,
+      marginTop: 4,
     },
 
     cardBottomRail: {
-      marginTop:
-        "auto",
-
-      paddingTop:
-        10,
-
-      borderTopWidth:
-        1,
-
+      marginTop: "auto",
+      paddingTop: 10,
+      borderTopWidth: 1,
       borderTopColor:
         colors.ink06,
-
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
+      flexDirection: "row",
+      alignItems: "center",
       justifyContent:
         "space-between",
-
-      gap:
-        8,
+      gap: 8,
     },
 
     mainFromPriceRail: {
       color:
         colors.blue,
-
-      fontSize:
-        22,
-
-      lineHeight:
-        25,
-
-      fontWeight:
-        "900",
-
-      letterSpacing:
-        -0.8,
-
-      marginTop:
-        1,
+      fontSize: 22,
+      lineHeight: 25,
+      fontWeight: "900",
+      letterSpacing: -0.8,
+      marginTop: 1,
     },
 
     mobileOpenPill: {
-      minHeight:
-        38,
-
-      paddingHorizontal:
-        14,
-
-      borderRadius:
-        999,
-
+      minHeight: 38,
+      paddingHorizontal: 14,
+      borderRadius: 999,
       backgroundColor:
         colors.ink,
-
-      alignItems:
-        "center",
-
+      alignItems: "center",
       justifyContent:
         "center",
     },
@@ -5850,501 +5206,268 @@ const styles =
     mobileOpenPillText: {
       color:
         colors.white,
-
-      fontSize:
-        11,
-
-      fontWeight:
-        "900",
+      fontSize: 11,
+      fontWeight: "900",
     },
 
     mobileTrustRail: {
-      paddingHorizontal:
-        16,
-
-      paddingTop:
-        2,
-
-      paddingBottom:
-        22,
-
-      gap:
-        8,
+      paddingHorizontal: 16,
+      paddingTop: 2,
+      paddingBottom: 22,
+      gap: 8,
     },
 
     mobileTrustChip: {
-      minHeight:
-        38,
-
-      paddingHorizontal:
-        12,
-
-      borderRadius:
-        999,
-
-      borderWidth:
-        1,
-
+      minHeight: 38,
+      paddingHorizontal: 12,
+      borderRadius: 999,
+      borderWidth: 1,
       borderColor:
         colors.ink12,
-
       backgroundColor:
         colors.white,
-
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
-      gap:
-        7,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 7,
     },
 
     mobileTrustChipIcon: {
       color:
         colors.ink,
-
-      fontSize:
-        12,
-
-      fontWeight:
-        "900",
+      fontSize: 12,
+      fontWeight: "900",
     },
 
     mobileTrustChipText: {
       color:
         colors.ink70,
-
-      fontSize:
-        11,
-
-      fontWeight:
-        "800",
+      fontSize: 11,
+      fontWeight: "800",
     },
 
     emptyStateMobile: {
-      marginHorizontal:
-        16,
-
-      borderRadius:
-        20,
-
-      padding:
-        20,
+      marginHorizontal: 16,
+      borderRadius: 20,
+      padding: 20,
     },
 
     grid: {
-      paddingHorizontal:
-        24,
-
-      flexDirection:
-        "row",
-
-      flexWrap:
-        "wrap",
-
-      gap:
-        18,
+      paddingHorizontal: 24,
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 18,
     },
 
     card: {
       backgroundColor:
         colors.white,
-
-      borderRadius:
-        30,
-
-      padding:
-        18,
-
-      borderWidth:
-        1,
-
+      borderRadius: 30,
+      padding: 18,
+      borderWidth: 1,
       borderColor:
         colors.ink12,
-
-      flexGrow:
-        1,
-
-      flexBasis:
-        250,
-
-      maxWidth:
-        370,
-
-      minHeight:
-        420,
-
-      shadowColor:
-        "#000",
-
-      shadowOpacity:
-        0.045,
-
-      shadowRadius:
-        18,
-
+      flexGrow: 1,
+      flexBasis: 250,
+      maxWidth: 370,
+      minHeight: 420,
+      shadowColor: "#000",
+      shadowOpacity: 0.045,
+      shadowRadius: 18,
       shadowOffset: {
-        width:
-          0,
-
-        height:
-          12,
+        width: 0,
+        height: 12,
       },
     },
 
     cardTop: {
-      flexDirection:
-        "row",
-
+      flexDirection: "row",
       justifyContent:
         "space-between",
-
-      alignItems:
-        "center",
-
-      marginBottom:
-        8,
+      alignItems: "center",
+      marginBottom: 8,
     },
 
     cardBrand: {
-      fontSize:
-        11,
-
-      fontWeight:
-        "900",
-
+      fontSize: 11,
+      fontWeight: "900",
       color:
         colors.ink40,
-
-      letterSpacing:
-        2.2,
+      letterSpacing: 2.2,
     },
 
     availabilityPills: {
-      flexDirection:
-        "row",
-
-      gap:
-        5,
+      flexDirection: "row",
+      gap: 5,
     },
 
     availabilityPill: {
-      color:
-        "#233300",
-
+      color: "#233300",
       backgroundColor:
         colors.limeLt,
-
-      fontSize:
-        9,
-
-      fontWeight:
-        "900",
-
-      paddingHorizontal:
-        8,
-
-      paddingVertical:
-        4,
-
-      borderRadius:
-        999,
-
-      overflow:
-        "hidden",
-
+      fontSize: 9,
+      fontWeight: "900",
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 999,
+      overflow: "hidden",
       textTransform:
         "uppercase",
     },
 
     phoneStage: {
-      height:
-        220,
-
-      alignItems:
-        "center",
-
+      height: 220,
+      alignItems: "center",
       justifyContent:
         "center",
-
-      marginBottom:
-        12,
+      marginBottom: 12,
     },
 
     cardName: {
-      fontSize:
-        21,
-
-      fontWeight:
-        "900",
-
+      fontSize: 21,
+      fontWeight: "900",
       color:
         colors.ink,
-
-      marginBottom:
-        6,
-
-      letterSpacing:
-        -0.7,
+      marginBottom: 6,
+      letterSpacing: -0.7,
     },
 
     cardSpec: {
-      fontSize:
-        13,
-
+      fontSize: 13,
       color:
         colors.ink40,
-
-      minHeight:
-        38,
-
-      lineHeight:
-        18,
+      minHeight: 38,
+      lineHeight: 18,
     },
 
     cardBottom: {
-      marginTop:
-        "auto",
-
-      paddingTop:
-        16,
-
-      borderTopWidth:
-        1,
-
+      marginTop: "auto",
+      paddingTop: 16,
+      borderTopWidth: 1,
       borderTopColor:
         colors.ink06,
-
-      flexDirection:
-        "row",
-
+      flexDirection: "row",
       alignItems:
         "flex-end",
-
       justifyContent:
         "space-between",
-
-      gap:
-        14,
+      gap: 14,
     },
 
     priceArea: {
-      flex:
-        1,
+      flex: 1,
     },
 
     fromLabel: {
       color:
         colors.ink40,
-
-      fontSize:
-        10,
-
-      fontWeight:
-        "900",
-
+      fontSize: 10,
+      fontWeight: "900",
       textTransform:
         "uppercase",
-
-      letterSpacing:
-        0.7,
+      letterSpacing: 0.7,
     },
 
     mainFromPrice: {
       color:
         colors.blue,
-
-      fontSize:
-        27,
-
-      fontWeight:
-        "900",
-
-      letterSpacing:
-        -1,
-
-      marginTop:
-        1,
+      fontSize: 27,
+      fontWeight: "900",
+      letterSpacing: -1,
+      marginTop: 1,
     },
 
     priceSubText: {
       color:
         colors.ink40,
-
-      fontSize:
-        11,
-
-      fontWeight:
-        "800",
-
-      marginTop:
-        2,
-
-      lineHeight:
-        15,
+      fontSize: 11,
+      fontWeight: "800",
+      marginTop: 2,
+      lineHeight: 15,
     },
 
     viewButton: {
       backgroundColor:
         colors.ink,
-
-      paddingHorizontal:
-        20,
-
-      paddingVertical:
-        13,
-
-      borderRadius:
-        14,
-
-      alignItems:
-        "center",
-
+      paddingHorizontal: 20,
+      paddingVertical: 13,
+      borderRadius: 14,
+      alignItems: "center",
       justifyContent:
         "center",
-
-      minHeight:
-        48,
-
-      minWidth:
-        88,
+      minHeight: 48,
+      minWidth: 88,
     },
 
     viewButtonText: {
       color:
         colors.white,
-
-      fontWeight:
-        "900",
-
-      fontSize:
-        13,
+      fontWeight: "900",
+      fontSize: 13,
     },
 
     mobileHeader: {
       backgroundColor:
         colors.bg,
-
-      paddingHorizontal:
-        16,
-
-      paddingTop:
-        10,
-
-      paddingBottom:
-        12,
-
-      gap:
-        12,
-
-      zIndex:
-        200,
+      paddingHorizontal: 16,
+      paddingTop: 10,
+      paddingBottom: 12,
+      gap: 12,
+      zIndex: 200,
     },
 
     mobileHeaderTop: {
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
+      flexDirection: "row",
+      alignItems: "center",
       justifyContent:
         "space-between",
-
-      gap:
-        12,
-
-      zIndex:
-        10,
+      gap: 12,
+      zIndex: 10,
     },
 
     mobileHeaderActions: {
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
-      gap:
-        8,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
     },
 
     brandRowMobile: {
-      flexShrink:
-        1,
-
-      gap:
-        9,
+      flexShrink: 1,
+      gap: 9,
     },
 
     markMobile: {
-      width:
-        38,
-
-      height:
-        38,
-
-      borderRadius:
-        13,
+      width: 38,
+      height: 38,
+      borderRadius: 13,
     },
 
     markInnerMobile: {
-      width:
-        15,
-
-      height:
-        15,
-
-      borderRadius:
-        5,
+      width: 15,
+      height: 15,
+      borderRadius: 5,
     },
 
     logoMobile: {
-      fontSize:
-        20,
-
-      letterSpacing:
-        -1,
+      fontSize: 20,
+      letterSpacing: -1,
     },
 
     logoSubMobile: {
-      fontSize:
-        7.5,
-
-      letterSpacing:
-        1.8,
-
-      marginTop:
-        -2,
+      fontSize: 7.5,
+      letterSpacing: 1.8,
+      marginTop: -2,
     },
 
     mobileLanguageSwitcher: {
-      height:
-        40,
-
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
-      paddingHorizontal:
-        4,
-
-      paddingVertical:
-        4,
-
-      borderRadius:
-        999,
-
+      height: 40,
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 4,
+      paddingVertical: 4,
+      borderRadius: 999,
       backgroundColor:
         colors.white,
-
-      borderWidth:
-        1,
-
+      borderWidth: 1,
       borderColor:
         colors.ink12,
     },
@@ -6352,36 +5475,18 @@ const styles =
     mobileLanguageIcon: {
       color:
         colors.ink,
-
-      fontSize:
-        12,
-
-      lineHeight:
-        16,
-
-      marginLeft:
-        5,
-
-      marginRight:
-        3,
+      fontSize: 12,
+      lineHeight: 16,
+      marginLeft: 5,
+      marginRight: 3,
     },
 
     mobileLanguageOption: {
-      height:
-        30,
-
-      minWidth:
-        31,
-
-      paddingHorizontal:
-        7,
-
-      borderRadius:
-        999,
-
-      alignItems:
-        "center",
-
+      height: 30,
+      minWidth: 31,
+      paddingHorizontal: 7,
+      borderRadius: 999,
+      alignItems: "center",
       justifyContent:
         "center",
     },
@@ -6394,12 +5499,8 @@ const styles =
     mobileLanguageOptionText: {
       color:
         colors.ink40,
-
-      fontSize:
-        11,
-
-      fontWeight:
-        "900",
+      fontSize: 11,
+      fontWeight: "900",
     },
 
     mobileLanguageOptionTextActive: {
@@ -6408,36 +5509,18 @@ const styles =
     },
 
     mobileCartButton: {
-      minHeight:
-        40,
-
-      maxWidth:
-        96,
-
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
+      minHeight: 40,
+      maxWidth: 96,
+      flexDirection: "row",
+      alignItems: "center",
       justifyContent:
         "center",
-
-      gap:
-        6,
-
-      paddingHorizontal:
-        12,
-
-      borderRadius:
-        999,
-
+      gap: 6,
+      paddingHorizontal: 12,
+      borderRadius: 999,
       backgroundColor:
         colors.white,
-
-      borderWidth:
-        1,
-
+      borderWidth: 1,
       borderColor:
         colors.ink12,
     },
@@ -6445,194 +5528,104 @@ const styles =
     mobileCartText: {
       color:
         colors.ink,
-
-      fontSize:
-        12,
-
-      fontWeight:
-        "900",
+      fontSize: 12,
+      fontWeight: "900",
     },
 
     mobileCartBadge: {
-      minWidth:
-        18,
-
-      height:
-        18,
-
-      borderRadius:
-        9,
-
+      minWidth: 18,
+      height: 18,
+      borderRadius: 9,
       backgroundColor:
         colors.blue,
-
       color:
         colors.white,
-
-      textAlign:
-        "center",
-
-      lineHeight:
-        18,
-
-      fontSize:
-        10,
-
-      fontWeight:
-        "900",
-
-      overflow:
-        "hidden",
+      textAlign: "center",
+      lineHeight: 18,
+      fontSize: 10,
+      fontWeight: "900",
+      overflow: "hidden",
     },
 
     mobileHeaderBottom: {
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
-      gap:
-        8,
-
-      position:
-        "relative",
-
-      zIndex:
-        1000,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      position: "relative",
+      zIndex: 1000,
     },
 
     searchBoxMobile: {
-      minHeight:
-        46,
-
-      height:
-        46,
-
-      paddingHorizontal:
-        14,
+      minHeight: 46,
+      height: 46,
+      paddingHorizontal: 14,
     },
 
     searchIconMobile: {
-      fontSize:
-        19,
+      fontSize: 19,
     },
 
     searchInputMobile: {
-      fontSize:
-        14,
-
-      minWidth:
-        0,
+      fontSize: 14,
+      minWidth: 0,
     },
 
     sectionHeaderMobile: {
-      paddingHorizontal:
-        16,
-
-      marginTop:
-        0,
-
-      marginBottom:
-        12,
+      paddingHorizontal: 16,
+      marginTop: 0,
+      marginBottom: 12,
     },
 
     mobileSectionTopRow: {
-      minHeight:
-        38,
-
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
+      minHeight: 38,
+      flexDirection: "row",
+      alignItems: "center",
       justifyContent:
         "space-between",
-
-      gap:
-        12,
-
-      marginBottom:
-        6,
+      gap: 12,
+      marginBottom: 6,
     },
 
     mobileCatalogButton: {
-      minHeight:
-        36,
-
-      paddingHorizontal:
-        13,
-
-      borderRadius:
-        999,
-
+      minHeight: 36,
+      paddingHorizontal: 13,
+      borderRadius: 999,
       backgroundColor:
         colors.ink,
-
-      flexDirection:
-        "row",
-
-      alignItems:
-        "center",
-
+      flexDirection: "row",
+      alignItems: "center",
       justifyContent:
         "center",
-
-      gap:
-        7,
+      gap: 7,
     },
 
     mobileCatalogButtonText: {
       color:
         colors.white,
-
-      fontSize:
-        11,
-
-      fontWeight:
-        "900",
+      fontSize: 11,
+      fontWeight: "900",
     },
 
     mobileCatalogArrow: {
       color:
         colors.white,
-
-      fontSize:
-        14,
-
-      lineHeight:
-        16,
-
-      fontWeight:
-        "900",
+      fontSize: 14,
+      lineHeight: 16,
+      fontWeight: "900",
     },
 
     sectionTitleMobile: {
-      fontSize:
-        24,
-
-      lineHeight:
-        27,
-
-      letterSpacing:
-        -0.8,
+      fontSize: 24,
+      lineHeight: 27,
+      letterSpacing: -0.8,
     },
 
     sectionSubTextMobile: {
       color:
         colors.ink40,
-
-      fontSize:
-        12,
-
-      lineHeight:
-        17,
-
-      fontWeight:
-        "800",
-
-      marginTop:
-        4,
+      fontSize: 12,
+      lineHeight: 17,
+      fontWeight: "800",
+      marginTop: 4,
     },
   });

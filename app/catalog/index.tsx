@@ -20,6 +20,7 @@ import { useLanguage } from "../../src/context/LanguageContext";
 import { phones } from "../../src/data/phones";
 
 import {
+  getLowestPublicVariantRefurbishedGradePrice,
   getProductSellConditions,
   getPublicProducts,
   getPublicProductVariants,
@@ -74,10 +75,43 @@ export default function CatalogScreen() {
   const {
     brand: brandParam,
     condition: conditionParam,
+    maxPrice: maxPriceParam,
+    sort: sortParam,
   } = useLocalSearchParams<{
     brand?: string | string[];
     condition?: string | string[];
+    maxPrice?: string | string[];
+    sort?: string | string[];
   }>();
+
+  const rawMaxPrice =
+    Array.isArray(maxPriceParam)
+      ? maxPriceParam[0]
+      : maxPriceParam;
+
+  const parsedMaxPrice =
+    rawMaxPrice
+      ? Number(rawMaxPrice)
+      : null;
+
+  const maxPriceFromUrl =
+    parsedMaxPrice !== null &&
+    Number.isFinite(
+      parsedMaxPrice
+    ) &&
+    parsedMaxPrice > 0
+      ? parsedMaxPrice
+      : null;
+
+  const rawSort =
+    Array.isArray(sortParam)
+      ? sortParam[0]
+      : sortParam;
+
+  const requestedSort =
+    rawSort
+      ?.trim()
+      .toLowerCase() ?? "";
 
   const {
     t,
@@ -423,12 +457,6 @@ export default function CatalogScreen() {
     const live =
       item.live;
 
-    const displayCondition:
-      CatalogItem["condition"] =
-        condition === "all"
-          ? item.condition
-          : condition;
-
     const productVariants =
       variantsByProductId[
         item.id
@@ -440,40 +468,21 @@ export default function CatalogScreen() {
           variant.available
       );
 
-    function getDirectVariantPrices(
+    const sellConditions =
+      item.condition === "used"
+        ? []
+        : getProductSellConditions(
+            live
+          );
+
+    function getActiveDirectVariantPrice(
       variant: PublicProductVariant
     ) {
-      let normalPrice:
-        number | null = null;
+      const normalPrice =
+        variant.sale_price;
 
-      let promotionalPrice:
-        number | null = null;
-
-      if (
-        displayCondition === "new"
-      ) {
-        normalPrice =
-          variant.sale_price;
-
-        promotionalPrice =
-          variant.promotional_price;
-      } else if (
-        live.condition ===
-          "refurbished" ||
-        live.condition === "used"
-      ) {
-        normalPrice =
-          variant.sale_price;
-
-        promotionalPrice =
-          variant.promotional_price;
-      } else {
-        normalPrice =
-          variant.refurbished_sale_price;
-
-        promotionalPrice =
-          variant.refurbished_promotional_price;
-      }
+      const promotionalPrice =
+        variant.promotional_price;
 
       if (
         normalPrice === null ||
@@ -505,49 +514,277 @@ export default function CatalogScreen() {
       };
     }
 
-    const variantPrices =
-      availableVariants
-        .map(
-          getDirectVariantPrices
-        )
-        .filter(
-          (entry) =>
-            entry.activePrice !==
-            null
-        );
-
-    const activePrices =
-      variantPrices
-        .map(
-          (entry) =>
-            entry.activePrice
-        )
-        .filter(
-          (
-            price
-          ): price is number =>
-            price !== null
-        );
-
-    const activePrice =
-      activePrices.length > 0
-        ? Math.min(
-            ...activePrices
+    function getLowestDirectPrice() {
+      const entries =
+        availableVariants
+          .map(
+            getActiveDirectVariantPrice
           )
-        : null;
+          .filter(
+            (
+              entry
+            ) =>
+              entry.activePrice !==
+              null
+          );
 
-    const lowestEntry =
-      activePrice === null
-        ? null
-        : variantPrices.find(
-            (entry) =>
-              entry.activePrice ===
-              activePrice
-          ) ?? null;
+      if (
+        entries.length === 0
+      ) {
+        return {
+          normalPrice: null,
+          activePrice: null,
+        };
+      }
 
-    const normalPrice =
-      lowestEntry?.normalPrice ??
+      return entries.reduce(
+        (
+          best,
+          current
+        ) =>
+          (
+            current.activePrice ??
+            Number.POSITIVE_INFINITY
+          ) <
+          (
+            best.activePrice ??
+            Number.POSITIVE_INFINITY
+          )
+            ? current
+            : best
+      );
+    }
+
+    function getNewPricing() {
+      if (
+        item.condition ===
+          "used" ||
+        (
+          item.condition !==
+            "new" &&
+          !sellConditions.includes(
+            "new"
+          )
+        )
+      ) {
+        return {
+          normalPrice: null,
+          activePrice: null,
+        };
+      }
+
+      return getLowestDirectPrice();
+    }
+
+    function getRefurbishedPricing() {
+      if (
+        item.condition ===
+          "used" ||
+        (
+          item.condition !==
+            "refurbished" &&
+          !sellConditions.includes(
+            "refurbished"
+          )
+        )
+      ) {
+        return {
+          normalPrice: null,
+          activePrice: null,
+        };
+      }
+
+      if (
+        live.condition ===
+        "refurbished"
+      ) {
+        return getLowestDirectPrice();
+      }
+
+      const prices =
+        availableVariants
+          .map(
+            (
+              variant
+            ) =>
+              getLowestPublicVariantRefurbishedGradePrice(
+                variant
+              )
+          )
+          .filter(
+            (
+              price
+            ): price is number =>
+              price !==
+                null &&
+              Number.isFinite(
+                price
+              ) &&
+              price > 0
+          );
+
+      const activePrice =
+        prices.length > 0
+          ? Math.min(
+              ...prices
+            )
+          : null;
+
+      return {
+        normalPrice:
+          activePrice,
+        activePrice,
+      };
+    }
+
+    function getUsedPricing() {
+      if (
+        item.condition !==
+        "used"
+      ) {
+        return {
+          normalPrice: null,
+          activePrice: null,
+        };
+      }
+
+      return getLowestDirectPrice();
+    }
+
+    const newPricing =
+      getNewPricing();
+
+    const refurbishedPricing =
+      getRefurbishedPricing();
+
+    const usedPricing =
+      getUsedPricing();
+
+    let displayCondition:
+      CatalogItem["condition"] =
+        item.condition;
+
+    let normalPrice:
+      number | null =
       null;
+
+    let activePrice:
+      number | null =
+      null;
+
+    if (
+      condition === "new"
+    ) {
+      displayCondition =
+        "new";
+
+      normalPrice =
+        newPricing.normalPrice;
+
+      activePrice =
+        newPricing.activePrice;
+    } else if (
+      condition ===
+      "refurbished"
+    ) {
+      displayCondition =
+        "refurbished";
+
+      normalPrice =
+        refurbishedPricing.normalPrice;
+
+      activePrice =
+        refurbishedPricing.activePrice;
+    } else if (
+      condition === "used"
+    ) {
+      displayCondition =
+        "used";
+
+      normalPrice =
+        usedPricing.normalPrice;
+
+      activePrice =
+        usedPricing.activePrice;
+    } else {
+      const candidatePrices: Array<{
+        condition:
+          CatalogItem["condition"];
+        normalPrice:
+          number | null;
+        activePrice:
+          number | null;
+      }> = [
+        {
+          condition:
+            "new",
+          normalPrice:
+            newPricing.normalPrice,
+          activePrice:
+            newPricing.activePrice,
+        },
+        {
+          condition:
+            "refurbished",
+          normalPrice:
+            refurbishedPricing.normalPrice,
+          activePrice:
+            refurbishedPricing.activePrice,
+        },
+        {
+          condition:
+            "used",
+          normalPrice:
+            usedPricing.normalPrice,
+          activePrice:
+            usedPricing.activePrice,
+        },
+      ];
+
+      const candidates =
+        candidatePrices.filter(
+          (
+            entry
+          ) =>
+            entry.activePrice !==
+              null &&
+            Number.isFinite(
+              entry.activePrice
+            ) &&
+            entry.activePrice > 0
+        );
+
+      if (
+        candidates.length > 0
+      ) {
+        const cheapest =
+          candidates.reduce(
+            (
+              best,
+              current
+            ) =>
+              (
+                current.activePrice ??
+                Number.POSITIVE_INFINITY
+              ) <
+              (
+                best.activePrice ??
+                Number.POSITIVE_INFINITY
+              )
+                ? current
+                : best
+          );
+
+        displayCondition =
+          cheapest.condition;
+
+        normalPrice =
+          cheapest.normalPrice;
+
+        activePrice =
+          cheapest.activePrice;
+      }
+    }
 
     return {
       displayCondition,
@@ -582,7 +819,7 @@ export default function CatalogScreen() {
 
     switch (priceFilter) {
       case "under300":
-        return price < 300;
+        return price <= 300;
 
       case "300to500":
         return (
@@ -656,67 +893,150 @@ export default function CatalogScreen() {
         .trim()
         .toLowerCase();
 
-      return catalogItems.filter(
-        (item) => {
-          const brandMatches =
-            brand === "all" ||
-            item.brand.toLowerCase() ===
-              brand;
+      const filtered =
+        catalogItems.filter(
+          (item) => {
+            const brandMatches =
+              brand === "all" ||
+              item.brand.toLowerCase() ===
+                brand;
 
-          const sellConditions =
-            getProductSellConditions(
-              item.live
+            const sellConditions =
+              getProductSellConditions(
+                item.live
+              );
+
+            const conditionMatches =
+              condition === "all"
+                ? true
+                : condition === "used"
+                  ? item.condition ===
+                    "used"
+                  : sellConditions.includes(
+                      condition as
+                        PublicSellCondition
+                    );
+
+            const queryMatches =
+              !q ||
+              item.name
+                .toLowerCase()
+                .includes(q) ||
+              item.brand
+                .toLowerCase()
+                .includes(q) ||
+              item.live.model
+                ?.toLowerCase()
+                .includes(q) ||
+              item.live.storage
+                ?.toLowerCase()
+                .includes(q) ||
+              item.live.color
+                ?.toLowerCase()
+                .includes(q);
+
+            const {
+              activePrice,
+            } =
+              getCatalogItemPricing(
+                item
+              );
+
+            const priceMatches =
+              priceMatchesFilter(
+                activePrice
+              );
+
+            const urlMaxPriceMatches =
+              maxPriceFromUrl ===
+              null
+                ? true
+                : activePrice !==
+                    null &&
+                  Number.isFinite(
+                    activePrice
+                  ) &&
+                  activePrice <=
+                    maxPriceFromUrl;
+
+            return (
+              brandMatches &&
+              conditionMatches &&
+              queryMatches &&
+              priceMatches &&
+              urlMaxPriceMatches
             );
+          }
+        );
 
-          const conditionMatches =
-            condition === "all"
-              ? true
-              : condition === "used"
-                ? item.condition ===
-                  "used"
-                : sellConditions.includes(
-                    condition as
-                      PublicSellCondition
-                  );
+      if (
+        requestedSort ===
+        "price-asc"
+      ) {
+        return filtered.sort(
+          (
+            a,
+            b
+          ) => {
+            const priceA =
+              getCatalogItemPricing(
+                a
+              ).activePrice ??
+              Number.POSITIVE_INFINITY;
 
-          const queryMatches =
-            !q ||
-            item.name
-              .toLowerCase()
-              .includes(q) ||
-            item.brand
-              .toLowerCase()
-              .includes(q) ||
-            item.live.model
-              ?.toLowerCase()
-              .includes(q) ||
-            item.live.storage
-              ?.toLowerCase()
-              .includes(q) ||
-            item.live.color
-              ?.toLowerCase()
-              .includes(q);
+            const priceB =
+              getCatalogItemPricing(
+                b
+              ).activePrice ??
+              Number.POSITIVE_INFINITY;
 
-          const {
-            activePrice,
-          } =
-            getCatalogItemPricing(
-              item
+            if (
+              priceA !==
+              priceB
+            ) {
+              return (
+                priceA -
+                priceB
+              );
+            }
+
+            return a.name.localeCompare(
+              b.name
             );
+          }
+        );
+      }
 
-          const priceMatches =
-            priceMatchesFilter(
-              activePrice
+      if (
+        requestedSort ===
+        "price-desc"
+      ) {
+        return filtered.sort(
+          (
+            a,
+            b
+          ) => {
+            const priceA =
+              getCatalogItemPricing(
+                a
+              ).activePrice ??
+              Number.NEGATIVE_INFINITY;
+
+            const priceB =
+              getCatalogItemPricing(
+                b
+              ).activePrice ??
+              Number.NEGATIVE_INFINITY;
+
+            return (
+              priceB -
+              priceA
             );
+          }
+        );
+      }
 
-          return (
-            brandMatches &&
-            conditionMatches &&
-            queryMatches &&
-            priceMatches
-          );
-        }
-      );
+      return filtered;
     }, [
       catalogItems,
       brand,
@@ -724,6 +1044,8 @@ export default function CatalogScreen() {
       priceFilter,
       query,
       variantsByProductId,
+      maxPriceFromUrl,
+      requestedSort,
     ]);
 
   const hasActiveFilters =
@@ -822,6 +1144,25 @@ export default function CatalogScreen() {
 
   const mobileGroups =
     useMemo(() => {
+      if (
+        requestedSort ===
+        "price-asc" ||
+        requestedSort ===
+        "price-desc"
+      ) {
+        return [
+          [
+            language === "pt"
+              ? "preço"
+              : "price",
+            filteredPhones,
+          ] as [
+            string,
+            CatalogItem[],
+          ],
+        ];
+      }
+
       const groups =
         new Map<
           string,
@@ -854,7 +1195,11 @@ export default function CatalogScreen() {
         ([a], [b]) =>
           a.localeCompare(b)
       );
-    }, [filteredPhones]);
+    }, [
+      filteredPhones,
+      requestedSort,
+      language,
+    ]);
 
   function getResultsLabel(
     count: number
