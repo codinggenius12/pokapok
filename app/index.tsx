@@ -849,12 +849,6 @@ export default function HomeScreen() {
       : null;
   }
 
-  /*
-   * Finds the lowest available price for a brand across
-   * BOTH new and refurbished configurations.
-   *
-   * All prices come from Supabase variants.
-   */
   function getLowestBrandPrice(
     brand: string
   ): number | null {
@@ -906,8 +900,6 @@ export default function HomeScreen() {
           continue;
         }
 
-        /* NEW */
-
         if (
           sellConditions.includes(
             "new"
@@ -946,8 +938,6 @@ export default function HomeScreen() {
             );
           }
         }
-
-        /* REFURBISHED */
 
         if (
           sellConditions.includes(
@@ -1021,12 +1011,6 @@ export default function HomeScreen() {
     sortedFeaturedPhones[0] ??
     phones[0];
 
-  /*
-   * First ad:
-   * pick an actual phone whose live lowest price is <= €300.
-   *
-   * Cheapest qualifying device is preferred.
-   */
   const featuredBudgetPhone =
     [...phones]
       .filter(
@@ -1065,12 +1049,6 @@ export default function HomeScreen() {
       )[0] ??
     featuredPhone;
 
-  /*
-   * iPhone visual:
-   * cheapest iPhone available in the local visual catalogue.
-   * The displayed banner price itself is still calculated
-   * directly from all live Supabase products.
-   */
   const featuredIphone =
     [...phones]
       .filter(
@@ -1111,10 +1089,6 @@ export default function HomeScreen() {
     ) ??
     featuredPhone;
 
-  /*
-   * Samsung visual:
-   * cheapest Samsung available in local phone visuals.
-   */
   const featuredSamsung =
     [...phones]
       .filter(
@@ -1172,74 +1146,52 @@ export default function HomeScreen() {
       ? {
           budgetKicker:
             "ATÉ 300 €",
-
           budgetTitle:
             "Smartphones até 300 €",
-
           budgetBody:
             "Descubra equipamentos acessíveis, novos e recondicionados, do mais barato ao mais caro.",
-
           budgetAction:
             "Ver até 300 €",
-
           iphoneKicker:
             "IPHONE",
-
           iphoneTitle:
             "iPhone desde",
-
           iphoneBody:
             "Descubra todos os iPhones novos e recondicionados disponíveis na POKAPOK.",
-
           iphoneAction:
             "Ver iPhones",
-
           samsungKicker:
             "SAMSUNG",
-
           samsungTitle:
             "Galaxy desde",
-
           samsungBody:
             "Descubra Samsung novos e recondicionados com preços atualizados diretamente da POKAPOK.",
-
           samsungAction:
             "Ver Samsung",
         }
       : {
           budgetKicker:
             "UNDER €300",
-
           budgetTitle:
             "Phones under €300",
-
           budgetBody:
             "Discover affordable new and refurbished phones, ordered from cheapest to most expensive.",
-
           budgetAction:
             "Shop under €300",
-
           iphoneKicker:
             "IPHONE",
-
           iphoneTitle:
             "iPhone from",
-
           iphoneBody:
             "Discover all new and refurbished iPhones available at POKAPOK.",
-
           iphoneAction:
             "Shop iPhones",
-
           samsungKicker:
             "SAMSUNG",
-
           samsungTitle:
             "Galaxy from",
-
           samsungBody:
             "Discover new and refurbished Samsung phones with live POKAPOK pricing.",
-
           samsungAction:
             "View Samsung",
         };
@@ -1396,6 +1348,272 @@ export default function HomeScreen() {
       ? "Novo"
       : "New";
   }
+
+  /* =======================================================
+     LIVE SUPABASE SEARCH
+  ======================================================= */
+
+  function getLiveProductSearchPrice(
+    product:
+      PublicProduct,
+
+    requestedCondition:
+      PublicSellCondition | null
+  ): number | null {
+    if (
+      requestedCondition ===
+      "new"
+    ) {
+      return getHomepagePrice(
+        product.slug
+      );
+    }
+
+    if (
+      requestedCondition ===
+      "refurbished"
+    ) {
+      return getHomepageRefurbishedPrice(
+        product.slug
+      );
+    }
+
+    return getLowestPhonePrice(
+      product.slug
+    );
+  }
+
+  function getLiveProductStorageText(
+    product:
+      PublicProduct
+  ) {
+    const variants =
+      variantsByProductId[
+        product.id
+      ] ?? [];
+
+    const storageOptions =
+      Array.from(
+        new Set(
+          variants
+            .filter(
+              (
+                variant
+              ) =>
+                variant.available &&
+                Boolean(
+                  variant.storage
+                )
+            )
+            .map(
+              (
+                variant
+              ) =>
+                String(
+                  variant.storage
+                ).trim()
+            )
+            .filter(
+              Boolean
+            )
+        )
+      );
+
+    return storageOptions.join(
+      " / "
+    );
+  }
+
+  const filteredLiveProducts =
+    useMemo(
+      () => {
+        const {
+          text,
+          maxPrice,
+          requestedCondition,
+          requestedBrand,
+        } =
+          parsedSearch;
+
+        const terms =
+          text
+            .split(
+              " "
+            )
+            .filter(
+              Boolean
+            );
+
+        return liveProducts
+          .filter(
+            (
+              product
+            ) => {
+              if (
+                !product.published ||
+                !product.available
+              ) {
+                return false;
+              }
+
+              if (
+                requestedBrand &&
+                product.brand
+                  .trim()
+                  .toLowerCase() !==
+                  requestedBrand
+              ) {
+                return false;
+              }
+
+              const sellConditions =
+                getProductSellConditions(
+                  product
+                );
+
+              if (
+                requestedCondition &&
+                !sellConditions.includes(
+                  requestedCondition
+                )
+              ) {
+                return false;
+              }
+
+              if (
+                maxPrice !==
+                null
+              ) {
+                const price =
+                  getLiveProductSearchPrice(
+                    product,
+                    requestedCondition
+                  );
+
+                if (
+                  price ===
+                    null ||
+                  price >
+                    maxPrice
+                ) {
+                  return false;
+                }
+              }
+
+              if (
+                terms.length ===
+                  0
+              ) {
+                return true;
+              }
+
+              const variants =
+                variantsByProductId[
+                  product.id
+                ] ?? [];
+
+              const variantSearchText =
+                variants
+                  .map(
+                    (
+                      variant
+                    ) =>
+                      [
+                        variant.storage,
+                        variant.color,
+                        variant.sku,
+                      ]
+                        .filter(
+                          Boolean
+                        )
+                        .join(
+                          " "
+                        )
+                  )
+                  .join(
+                    " "
+                  );
+
+              const conditionText =
+                sellConditions.join(
+                  " "
+                );
+
+              const searchableText =
+                normalizeSearchText(
+                  [
+                    product.name,
+                    product.brand,
+                    product.slug,
+                    conditionText,
+                    variantSearchText,
+                  ]
+                    .filter(
+                      Boolean
+                    )
+                    .join(
+                      " "
+                    )
+                );
+
+              return terms.every(
+                (
+                  term
+                ) =>
+                  searchableText.includes(
+                    term
+                  )
+              );
+            }
+          )
+          .sort(
+            (
+              a,
+              b
+            ) => {
+              const priceA =
+                getLiveProductSearchPrice(
+                  a,
+                  requestedCondition
+                ) ??
+                Number.POSITIVE_INFINITY;
+
+              const priceB =
+                getLiveProductSearchPrice(
+                  b,
+                  requestedCondition
+                ) ??
+                Number.POSITIVE_INFINITY;
+
+              return (
+                priceA -
+                priceB
+              );
+            }
+          )
+          .slice(
+            0,
+            20
+          );
+      },
+      [
+        parsedSearch,
+        liveProducts,
+        variantsByProductId,
+      ]
+    );
+
+  const searchSuggestions =
+    useMemo(
+      () =>
+        filteredLiveProducts.slice(
+          0,
+          5
+        ),
+      [
+        filteredLiveProducts,
+      ]
+    );
 
   /* =======================================================
      FILTER PRODUCTS
@@ -1561,18 +1779,6 @@ export default function HomeScreen() {
         parsedSearch,
         liveProducts,
         variantsByProductId,
-      ]
-    );
-
-  const searchSuggestions =
-    useMemo(
-      () =>
-        filteredPhones.slice(
-          0,
-          5
-        ),
-      [
-        filteredPhones,
       ]
     );
 
@@ -1817,7 +2023,7 @@ export default function HomeScreen() {
                     }
                   >
                     {
-                      filteredPhones.length
+                      filteredLiveProducts.length
                     }
                   </Text>
                 </View>
@@ -1832,32 +2038,27 @@ export default function HomeScreen() {
                     >
                       {searchSuggestions.map(
                         (
-                          phone
+                          product
                         ) => {
                           const price =
-                            parsedSearch
-                              .requestedCondition ===
-                            "refurbished"
-                              ? getHomepageRefurbishedPrice(
-                                  phone.slug
-                                )
-                              : parsedSearch
-                                    .requestedCondition ===
-                                  "new"
-                                ? getHomepagePrice(
-                                    phone.slug
-                                  )
-                                : getLowestPhonePrice(
-                                    phone.slug
-                                  );
+                            getLiveProductSearchPrice(
+                              product,
+                              parsedSearch
+                                .requestedCondition
+                            );
+
+                          const storageText =
+                            getLiveProductStorageText(
+                              product
+                            );
 
                           return (
                             <Link
                               key={
-                                phone.id
+                                product.id
                               }
                               href={
-                                `/product/${phone.slug}` as any
+                                `/product/${product.slug}` as any
                               }
                               asChild
                             >
@@ -1889,7 +2090,7 @@ export default function HomeScreen() {
                                       styles.searchSuggestionBrand
                                     }
                                   >
-                                    {phone.brand.toUpperCase()}
+                                    {product.brand.toUpperCase()}
                                   </Text>
 
                                   <Text
@@ -1901,7 +2102,7 @@ export default function HomeScreen() {
                                     }
                                   >
                                     {
-                                      phone.name
+                                      product.name
                                     }
                                   </Text>
 
@@ -1915,14 +2116,12 @@ export default function HomeScreen() {
                                   >
                                     {
                                       getSearchConditionText(
-                                        phone.slug
+                                        product.slug
                                       )
                                     }
 
-                                    {phone
-                                      .storage[0]
-                                      ?.label
-                                      ? ` · ${phone.storage[0].label}`
+                                    {storageText
+                                      ? ` · ${storageText}`
                                       : ""}
                                   </Text>
                                 </View>
@@ -2277,10 +2476,6 @@ export default function HomeScreen() {
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        {/* =================================================
-            MOBILE HEADER
-        ================================================= */}
-
         {isMobile ? (
           <View
             style={
@@ -2471,10 +2666,6 @@ export default function HomeScreen() {
           </View>
         ) : (
           <>
-            {/* =============================================
-                DESKTOP UTILITY BAR
-            ============================================= */}
-
             <View
               style={
                 styles.utilityBar
@@ -2560,10 +2751,6 @@ export default function HomeScreen() {
                 </View>
               </View>
             </View>
-
-            {/* =============================================
-                DESKTOP HEADER
-            ============================================= */}
 
             <View
               style={
@@ -2682,10 +2869,6 @@ export default function HomeScreen() {
             </View>
           </>
         )}
-
-        {/* =================================================
-            BRAND + CONDITION FILTERS
-        ================================================= */}
 
         <View
           style={[
@@ -2844,10 +3027,6 @@ export default function HomeScreen() {
           </ScrollView>
         </View>
 
-        {/* =================================================
-            PROMOTION BANNERS
-        ================================================= */}
-
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={
@@ -2871,10 +3050,6 @@ export default function HomeScreen() {
             styles.promoCarousel
           }
         >
-          {/* ===============================================
-              PHONES UNDER €300
-          =============================================== */}
-
           <Link
             href={
               "/catalog?maxPrice=300&sort=price-asc" as any
@@ -2995,10 +3170,6 @@ export default function HomeScreen() {
               </View>
             </Pressable>
           </Link>
-
-          {/* ===============================================
-              ALL IPHONES — NEW + REFURBISHED
-          =============================================== */}
 
           <Link
             href={
@@ -3125,10 +3296,6 @@ export default function HomeScreen() {
               </View>
             </Pressable>
           </Link>
-
-          {/* ===============================================
-              SAMSUNG — LIVE LOWEST PRICE
-          =============================================== */}
 
           <Link
             href={
@@ -3267,10 +3434,6 @@ export default function HomeScreen() {
           </Link>
         </ScrollView>
 
-        {/* =================================================
-            DESKTOP TRUST + STATEMENT
-        ================================================= */}
-
         {!isMobile ? (
           <>
             <View
@@ -3408,10 +3571,6 @@ export default function HomeScreen() {
             </View>
           </>
         ) : null}
-
-        {/* =================================================
-            PRODUCT SECTION HEADER
-        ================================================= */}
 
         {isMobile ? (
           <View
@@ -3553,10 +3712,6 @@ export default function HomeScreen() {
             </Link>
           </View>
         )}
-
-        {/* =================================================
-            PRODUCTS
-        ================================================= */}
 
         {filteredPhones.length ===
         0 ? (
