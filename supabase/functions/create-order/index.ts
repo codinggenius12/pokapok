@@ -27,14 +27,9 @@ type BatteryGrade =
   | "new";
 
 type ProductRow = {
-  id:
-    string;
-
-  name:
-    string;
-
-  slug:
-    string;
+  id: string;
+  name: string;
+  slug: string;
 
   condition:
     | SellCondition
@@ -61,8 +56,7 @@ type ProductRow = {
 };
 
 type VariantRow = {
-  id:
-    string;
+  id: string;
 
   product_id:
     string;
@@ -360,7 +354,6 @@ function cleanString(
       ""
   ).trim();
 }
-
 
 function toNullableNumber(
   value:
@@ -1014,10 +1007,6 @@ function getAuthoritativeBasePrice({
     | RefurbishedGrade
     | null;
 }) {
-  /* =======================================================
-     NEW
-  ======================================================= */
-
   if (
     condition ===
       "new"
@@ -1056,9 +1045,6 @@ function getAuthoritativeBasePrice({
       return price;
     }
 
-    /*
-     * Product-level fallback is kept only for NEW products.
-     */
     const price =
       activePrice(
         product
@@ -1080,10 +1066,6 @@ function getAuthoritativeBasePrice({
     return price;
   }
 
-  /* =======================================================
-     REFURBISHED
-  ======================================================= */
-
   if (
     !productCanBeSoldRefurbished(
       product
@@ -1094,18 +1076,6 @@ function getAuthoritativeBasePrice({
     );
   }
 
-  /*
-   * Exact cosmetic-grade pricing always requires a real
-   * product variant.
-   *
-   * We intentionally DO NOT fall back to:
-   *
-   * refurbished_sale_price
-   * refurbished_promotional_price
-   *
-   * because those generic fields cannot represent the exact
-   * grade selected by the customer.
-   */
   if (
     !variant
   ) {
@@ -1915,7 +1885,9 @@ POKAPOK`;
           "pt"
         ? `
           <div style="background:#eef4ff;border-radius:16px;padding:18px;margin:18px 0;border:1px solid #d7e5ff;">
-            <div style="font-size:12px;font-weight:800;color:#5d6673;letter-spacing:.5px;">EQUIVALENTE EM CVE</div>
+            <div style="font-size:12px;font-weight:800;color:#5d6673;letter-spacing:.5px;">
+              EQUIVALENTE EM CVE
+            </div>
 
             <div style="font-size:24px;font-weight:900;color:#1261ff;margin-top:6px;">
               ${formattedDisplayTotal}
@@ -1939,7 +1911,9 @@ POKAPOK`;
           </div>`
         : `
           <div style="background:#eef4ff;border-radius:16px;padding:18px;margin:18px 0;border:1px solid #d7e5ff;">
-            <div style="font-size:12px;font-weight:800;color:#5d6673;letter-spacing:.5px;">CVE DISPLAY EQUIVALENT</div>
+            <div style="font-size:12px;font-weight:800;color:#5d6673;letter-spacing:.5px;">
+              CVE DISPLAY EQUIVALENT
+            </div>
 
             <div style="font-size:24px;font-weight:900;color:#1261ff;margin-top:6px;">
               ${formattedDisplayTotal}
@@ -2019,6 +1993,7 @@ POKAPOK`;
 <body style="margin:0;padding:0;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111;">
   <div style="max-width:620px;margin:0 auto;padding:32px 20px;">
     <div style="background:#fff;border-radius:24px;padding:30px;border:1px solid #e5e5e5;">
+
       <div style="font-weight:900;letter-spacing:2px;color:#1261ff;margin-bottom:22px;">
         POKAPOK
       </div>
@@ -2129,6 +2104,7 @@ POKAPOK`;
       <p style="color:#555;line-height:1.6;margin-top:22px;">
         Introduza esta referência exatamente no campo de descrição/mensagem da transferência.
       </p>
+
     </div>
   </div>
 </body>
@@ -2139,6 +2115,7 @@ POKAPOK`;
 <body style="margin:0;padding:0;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111;">
   <div style="max-width:620px;margin:0 auto;padding:32px 20px;">
     <div style="background:#fff;border-radius:24px;padding:30px;border:1px solid #e5e5e5;">
+
       <div style="font-weight:900;letter-spacing:2px;color:#1261ff;margin-bottom:22px;">
         POKAPOK
       </div>
@@ -2245,6 +2222,7 @@ POKAPOK`;
           ${safeReference}
         </div>
       </div>
+
     </div>
   </div>
 </body>
@@ -2273,6 +2251,9 @@ POKAPOK`;
             to: [
               customerEmail,
             ],
+
+            reply_to:
+              "orders@pokapok.cv",
 
             subject,
 
@@ -2362,12 +2343,17 @@ Deno.serve(
           "RESEND_API_KEY"
         );
 
+      /*
+       * IMPORTANT:
+       * Do not fall back to the old Lumina sender.
+       *
+       * Example secret:
+       *
+       * POKAPOK_FROM_EMAIL="POKAPOK <orders@pokapok.cv>"
+       */
       const fromEmail =
         Deno.env.get(
           "POKAPOK_FROM_EMAIL"
-        ) ??
-        Deno.env.get(
-          "LUMINA_FROM_EMAIL"
         );
 
       const accountName =
@@ -2424,6 +2410,10 @@ Deno.serve(
           .trim()
           .toUpperCase();
 
+      /* ===================================================
+         REQUIRED CONFIGURATION
+      =================================================== */
+
       if (
         !supabaseUrl
       ) {
@@ -2439,6 +2429,31 @@ Deno.serve(
         return serverError(
           "SUPABASE_CONFIGURATION_MISSING",
           "SUPABASE_SERVICE_ROLE_KEY is not configured."
+        );
+      }
+
+      /*
+       * Resend is required whenever the customer supplies
+       * an email address.
+       *
+       * We validate the configuration here so a broken
+       * deployment is easy to detect.
+       */
+      if (
+        !resendApiKey
+      ) {
+        return serverError(
+          "RESEND_CONFIGURATION_MISSING",
+          "RESEND_API_KEY is not configured."
+        );
+      }
+
+      if (
+        !fromEmail
+      ) {
+        return serverError(
+          "RESEND_CONFIGURATION_MISSING",
+          "POKAPOK_FROM_EMAIL is not configured."
         );
       }
 
@@ -2816,10 +2831,6 @@ Deno.serve(
           );
         }
       } else {
-        /*
-         * Do not silently accept refurbished configuration
-         * attached to a new-product order.
-         */
         if (
           refurbishedGradeRaw ||
           batteryGradeRaw
@@ -3086,9 +3097,6 @@ Deno.serve(
 
       /* ===================================================
          BATTERY PRICE
-
-         Fixed business rule:
-         + €89 per refurbished device with a NEW battery.
       =================================================== */
 
       const batteryUpgradeAmount =
@@ -3111,10 +3119,6 @@ Deno.serve(
 
       /* ===================================================
          SUBTOTAL
-
-         Battery upgrade is already included in unitPrice.
-         Therefore quantity correctly applies the upgrade once
-         per device.
       =================================================== */
 
       const subtotalAmount =
@@ -3125,8 +3129,6 @@ Deno.serve(
 
       /* ===================================================
          FINAL TOTAL
-
-         Products + shipping.
       =================================================== */
 
       const totalAmount =
@@ -3220,15 +3222,11 @@ Deno.serve(
             "orders"
           )
           .insert({
-            /* ORDER */
-
             order_number:
               orderNumber,
 
             payment_reference:
               paymentReference,
-
-            /* CUSTOMER */
 
             customer_name:
               customerName,
@@ -3272,8 +3270,6 @@ Deno.serve(
 
             language,
 
-            /* PRODUCT */
-
             product_id:
               product.id,
 
@@ -3307,8 +3303,6 @@ Deno.serve(
               batteryUpgradeAmount,
 
             quantity,
-
-            /* PRICING */
 
             unit_price:
               unitPrice,
@@ -3349,8 +3343,6 @@ Deno.serve(
             exchange_rate:
               exchangeRate,
 
-            /* PAYMENT */
-
             payment_method:
               "bank_transfer",
 
@@ -3388,16 +3380,6 @@ Deno.serve(
 
       /* ===================================================
          EMAIL
-
-         Email remains OPTIONAL.
-
-         No email:
-         -> order succeeds
-         -> Resend is skipped
-
-         Email supplied:
-         -> send confirmation
-         -> email failure never destroys the order
       =================================================== */
 
       let emailSent =
@@ -3411,11 +3393,8 @@ Deno.serve(
       if (
         customerEmail
       ) {
-        if (
-          resendApiKey &&
-          fromEmail
-        ) {
-          try {
+        try {
+          const resendResult =
             await sendOrderEmail({
               resendApiKey,
               fromEmail,
@@ -3464,22 +3443,26 @@ Deno.serve(
               language,
             });
 
-            emailSent =
-              true;
-          } catch (
-            emailError
-          ) {
-            console.error(
-              "Order email error:",
-              emailError
-            );
+          console.log(
+            "Resend success:",
+            resendResult
+          );
 
-            warning =
-              "Order created, but the confirmation email could not be sent.";
-          }
-        } else {
+          emailSent =
+            true;
+        } catch (
+          emailError
+        ) {
+          console.error(
+            "Order email error:",
+            emailError
+          );
+
           warning =
-            "Order created, but email delivery is not configured.";
+            emailError instanceof
+              Error
+              ? `Order created, but email failed: ${emailError.message}`
+              : "Order created, but the confirmation email could not be sent.";
         }
       } else {
         console.log(
@@ -3512,19 +3495,12 @@ Deno.serve(
           currency:
             SETTLEMENT_CURRENCY,
 
-          /*
-           * Price coming directly from the selected Supabase
-           * grade/new-device price before battery upgrade.
-           */
           base_unit_price:
             baseUnitPrice,
 
           battery_upgrade_amount:
             batteryUpgradeAmount,
 
-          /*
-           * Final per-device price including battery upgrade.
-           */
           unit_price:
             unitPrice,
 
