@@ -1,8 +1,15 @@
+// deno-lint-ignore-file no-explicit-any
 import { createClient } from "@supabase/supabase-js";
 
 /* =========================================================
    TYPES
 ========================================================= */
+
+type SupabaseServerClient = {
+  from: (
+    table: string
+  ) => any;
+};
 
 type SellCondition =
   | "new"
@@ -26,10 +33,38 @@ type BatteryGrade =
   | "optimal"
   | "new";
 
+type RequestItem = {
+  product_id?:
+    string;
+
+  variant_id?:
+    | string
+    | null;
+
+  condition?:
+    SellCondition;
+
+  refurbished_grade?:
+    | RefurbishedGrade
+    | null;
+
+  battery_grade?:
+    | BatteryGrade
+    | null;
+
+  quantity?:
+    number;
+};
+
 type ProductRow = {
-  id: string;
-  name: string;
-  slug: string;
+  id:
+    string;
+
+  name:
+    string;
+
+  slug:
+    string;
 
   condition:
     | SellCondition
@@ -56,7 +91,8 @@ type ProductRow = {
 };
 
 type VariantRow = {
-  id: string;
+  id:
+    string;
 
   product_id:
     string;
@@ -76,8 +112,6 @@ type VariantRow = {
   available:
     boolean;
 
-  /* NEW */
-
   sale_price:
     | number
     | string
@@ -88,8 +122,6 @@ type VariantRow = {
     | string
     | null;
 
-  /* LEGACY GENERIC REFURBISHED */
-
   refurbished_sale_price:
     | number
     | string
@@ -99,8 +131,6 @@ type VariantRow = {
     | number
     | string
     | null;
-
-  /* EXACT REFURBISHED GRADES */
 
   refurbished_correct_sale_price:
     | number
@@ -181,6 +211,65 @@ type DestinationValidationResult =
       shippingPrice:
         number;
     };
+
+type ValidatedOrderItem = {
+  product:
+    ProductRow;
+
+  variant:
+    | VariantRow
+    | null;
+
+  condition:
+    SellCondition;
+
+  refurbishedGrade:
+    | RefurbishedGrade
+    | null;
+
+  batteryGrade:
+    | BatteryGrade
+    | null;
+
+  quantity:
+    number;
+
+  baseUnitPrice:
+    number;
+
+  batteryUpgradeAmount:
+    number;
+
+  unitPrice:
+    number;
+
+  lineSubtotal:
+    number;
+
+  productName:
+    string;
+
+  storage:
+    string
+    | null;
+
+  color:
+    string
+    | null;
+};
+
+/* =========================================================
+   LIMITS
+========================================================= */
+
+const MAX_ORDER_LINES =
+  20;
+
+const MAX_QUANTITY_PER_LINE =
+  10;
+
+const MAX_TOTAL_QUANTITY =
+  50;
 
 /* =========================================================
    CURRENCY
@@ -766,86 +855,27 @@ function buildHtmlAddress({
   country:
     string;
 }) {
-  const lines:
-    string[] = [];
-
-  const streetLine =
-    [
-      street,
-      houseNumber,
-    ]
-      .filter(
-        Boolean
-      )
-      .join(
-        ", "
-      );
-
-  if (
-    streetLine
-  ) {
-    lines.push(
-      escapeHtml(
-        streetLine
-      )
+  return buildTextAddress({
+    street,
+    houseNumber,
+    addressLine2,
+    postalCode,
+    city,
+    stateRegion,
+    country,
+  })
+    .split("\n")
+    .map(
+      (
+        line
+      ) =>
+        escapeHtml(
+          line
+        )
+    )
+    .join(
+      "<br>"
     );
-  }
-
-  if (
-    addressLine2
-  ) {
-    lines.push(
-      escapeHtml(
-        addressLine2
-      )
-    );
-  }
-
-  const cityLine =
-    [
-      postalCode,
-      city,
-    ]
-      .filter(
-        Boolean
-      )
-      .join(
-        " "
-      );
-
-  if (
-    cityLine
-  ) {
-    lines.push(
-      escapeHtml(
-        cityLine
-      )
-    );
-  }
-
-  if (
-    stateRegion
-  ) {
-    lines.push(
-      escapeHtml(
-        stateRegion
-      )
-    );
-  }
-
-  if (
-    country
-  ) {
-    lines.push(
-      escapeHtml(
-        country
-      )
-    );
-  }
-
-  return lines.join(
-    "<br>"
-  );
 }
 
 /* =========================================================
@@ -925,7 +955,7 @@ function activePrice(
 }
 
 /* =========================================================
-   EXACT REFURBISHED GRADE PRICE
+   REFURBISHED PRICE
 ========================================================= */
 
 function getRefurbishedGradePrice(
@@ -1310,6 +1340,917 @@ function getBatteryGradeLabel(
 }
 
 /* =========================================================
+   VALIDATE + PRICE ONE ORDER ITEM
+========================================================= */
+
+async function validateOrderItem(
+  supabase:
+    SupabaseServerClient,
+
+  rawItem:
+    RequestItem,
+
+  index:
+    number
+
+): Promise<
+  | {
+      success:
+        true;
+
+      item:
+        ValidatedOrderItem;
+    }
+  | {
+      success:
+        false;
+
+      code:
+        string;
+
+      message:
+        string;
+    }
+> {
+  const productId =
+    cleanString(
+      rawItem.product_id
+    );
+
+  const variantId =
+    cleanString(
+      rawItem.variant_id
+    ) ||
+    null;
+
+  const conditionRaw =
+    cleanString(
+      rawItem.condition
+    ).toLowerCase();
+
+  const quantity =
+    Number(
+      rawItem.quantity ??
+        1
+    );
+
+  if (
+    !productId
+  ) {
+    return {
+      success:
+        false,
+
+      code:
+        "PRODUCT_REQUIRED",
+
+      message:
+        `Product ID is required for item ${index + 1}.`,
+    };
+  }
+
+  if (
+    conditionRaw !==
+      "new" &&
+    conditionRaw !==
+      "refurbished"
+  ) {
+    return {
+      success:
+        false,
+
+      code:
+        "INVALID_CONDITION",
+
+      message:
+        `Invalid condition for item ${index + 1}.`,
+    };
+  }
+
+  const condition =
+    conditionRaw as
+      SellCondition;
+
+  if (
+    !Number.isInteger(
+      quantity
+    ) ||
+    quantity < 1 ||
+    quantity >
+      MAX_QUANTITY_PER_LINE
+  ) {
+    return {
+      success:
+        false,
+
+      code:
+        "INVALID_QUANTITY",
+
+      message:
+        `Quantity for item ${index + 1} must be between 1 and ${MAX_QUANTITY_PER_LINE}.`,
+    };
+  }
+
+  let refurbishedGrade:
+    | RefurbishedGrade
+    | null =
+    null;
+
+  let batteryGrade:
+    | BatteryGrade
+    | null =
+    null;
+
+  if (
+    condition ===
+      "refurbished"
+  ) {
+    refurbishedGrade =
+      normalizeRefurbishedGrade(
+        rawItem.refurbished_grade
+      );
+
+    batteryGrade =
+      normalizeBatteryGrade(
+        rawItem.battery_grade
+      );
+
+    if (
+      !variantId
+    ) {
+      return {
+        success:
+          false,
+
+        code:
+          "REFURBISHED_VARIANT_REQUIRED",
+
+        message:
+          `A variant is required for refurbished item ${index + 1}.`,
+      };
+    }
+
+    if (
+      !refurbishedGrade
+    ) {
+      return {
+        success:
+          false,
+
+        code:
+          "REFURBISHED_GRADE_REQUIRED",
+
+        message:
+          `A refurbished cosmetic grade is required for item ${index + 1}.`,
+      };
+    }
+
+    if (
+      !batteryGrade
+    ) {
+      return {
+        success:
+          false,
+
+        code:
+          "BATTERY_GRADE_REQUIRED",
+
+        message:
+          `A battery option is required for item ${index + 1}.`,
+      };
+    }
+  } else {
+    if (
+      rawItem
+        .refurbished_grade !=
+        null ||
+      rawItem
+        .battery_grade !=
+        null
+    ) {
+      return {
+        success:
+          false,
+
+        code:
+          "INVALID_REFURBISHED_CONFIGURATION",
+
+        message:
+          `Refurbished configuration cannot be used for new item ${index + 1}.`,
+      };
+    }
+  }
+
+  /* =======================================================
+     PRODUCT
+  ======================================================= */
+
+  const {
+    data:
+      productData,
+
+    error:
+      productError,
+  } =
+    await supabase
+      .from(
+        "products"
+      )
+      .select(`
+        id,
+        name,
+        slug,
+        condition,
+        refurbished_enabled,
+        sale_price,
+        promotional_price,
+        available,
+        published
+      `)
+      .eq(
+        "id",
+        productId
+      )
+      .maybeSingle();
+
+  if (
+    productError
+  ) {
+    console.error(
+      "Product lookup error:",
+      {
+        index,
+        productId,
+        productError,
+      }
+    );
+
+    return {
+      success:
+        false,
+
+      code:
+        "PRODUCT_QUERY_FAILED",
+
+      message:
+        `Could not load product for item ${index + 1}.`,
+    };
+  }
+
+  if (
+    !productData
+  ) {
+    return {
+      success:
+        false,
+
+      code:
+        "PRODUCT_NOT_FOUND",
+
+      message:
+        `Product for item ${index + 1} could not be found.`,
+    };
+  }
+
+  const product =
+    productData as
+      ProductRow;
+
+  if (
+    !product.published ||
+    !product.available
+  ) {
+    return {
+      success:
+        false,
+
+      code:
+        "PRODUCT_UNAVAILABLE",
+
+      message:
+        `${product.name} is currently unavailable.`,
+    };
+  }
+
+  if (
+    condition ===
+      "new" &&
+    !productCanBeSoldNew(
+      product
+    )
+  ) {
+    return {
+      success:
+        false,
+
+      code:
+        "NEW_NOT_AVAILABLE",
+
+      message:
+        `${product.name} is not available as new.`,
+    };
+  }
+
+  if (
+    condition ===
+      "refurbished" &&
+    !productCanBeSoldRefurbished(
+      product
+    )
+  ) {
+    return {
+      success:
+        false,
+
+      code:
+        "REFURBISHED_NOT_AVAILABLE",
+
+      message:
+        `${product.name} is not available refurbished.`,
+    };
+  }
+
+  /* =======================================================
+     VARIANT
+  ======================================================= */
+
+  let variant:
+    | VariantRow
+    | null =
+    null;
+
+  if (
+    variantId
+  ) {
+    const {
+      data:
+        variantData,
+
+      error:
+        variantError,
+    } =
+      await supabase
+        .from(
+          "product_variants"
+        )
+        .select(`
+          id,
+          product_id,
+          storage,
+          color,
+          sku,
+          available,
+
+          sale_price,
+          promotional_price,
+
+          refurbished_sale_price,
+          refurbished_promotional_price,
+
+          refurbished_correct_sale_price,
+          refurbished_correct_promotional_price,
+
+          refurbished_good_sale_price,
+          refurbished_good_promotional_price,
+
+          refurbished_excellent_sale_price,
+          refurbished_excellent_promotional_price,
+
+          refurbished_premium_sale_price,
+          refurbished_premium_promotional_price
+        `)
+        .eq(
+          "id",
+          variantId
+        )
+        .eq(
+          "product_id",
+          product.id
+        )
+        .maybeSingle();
+
+    if (
+      variantError
+    ) {
+      console.error(
+        "Variant lookup error:",
+        {
+          index,
+          variantId,
+          variantError,
+        }
+      );
+
+      return {
+        success:
+          false,
+
+        code:
+          "VARIANT_QUERY_FAILED",
+
+        message:
+          `Could not load product variant for ${product.name}.`,
+      };
+    }
+
+    if (
+      !variantData
+    ) {
+      return {
+        success:
+          false,
+
+        code:
+          "VARIANT_NOT_FOUND",
+
+        message:
+          `The selected variant for ${product.name} could not be found.`,
+      };
+    }
+
+    variant =
+      variantData as
+        VariantRow;
+
+    if (
+      !variant.available
+    ) {
+      return {
+        success:
+          false,
+
+        code:
+          "VARIANT_UNAVAILABLE",
+
+        message:
+          `The selected variant of ${product.name} is unavailable.`,
+      };
+    }
+  }
+
+  /* =======================================================
+     AUTHORITATIVE PRICE
+  ======================================================= */
+
+  let baseUnitPrice:
+    number;
+
+  try {
+    baseUnitPrice =
+      roundMoney(
+        getAuthoritativeBasePrice({
+          product,
+          variant,
+          condition,
+          refurbishedGrade,
+        })
+      );
+  } catch (
+    error
+  ) {
+    const code =
+      error instanceof
+        Error
+        ? error.message
+        : "PRICE_NOT_AVAILABLE";
+
+    return {
+      success:
+        false,
+
+      code,
+
+      message:
+        code ===
+          "REFURBISHED_GRADE_PRICE_NOT_AVAILABLE"
+          ? `No valid price is configured for the selected refurbished grade of ${product.name}.`
+          : code ===
+              "NEW_NOT_AVAILABLE"
+            ? `${product.name} is not available as new.`
+            : code ===
+                "REFURBISHED_NOT_AVAILABLE"
+              ? `${product.name} is not available refurbished.`
+              : `The selected configuration for ${product.name} does not have a valid price.`,
+    };
+  }
+
+  if (
+    !Number.isFinite(
+      baseUnitPrice
+    ) ||
+    baseUnitPrice <= 0
+  ) {
+    return {
+      success:
+        false,
+
+      code:
+        "PRICE_NOT_AVAILABLE",
+
+      message:
+        `The selected configuration for ${product.name} does not have a valid price.`,
+    };
+  }
+
+  const batteryUpgradeAmount =
+    condition ===
+        "refurbished" &&
+      batteryGrade ===
+        "new"
+      ? NEW_BATTERY_UPGRADE_PRICE
+      : 0;
+
+  const unitPrice =
+    roundMoney(
+      baseUnitPrice +
+        batteryUpgradeAmount
+    );
+
+  const lineSubtotal =
+    roundMoney(
+      unitPrice *
+        quantity
+    );
+
+  return {
+    success:
+      true,
+
+    item: {
+      product,
+
+      variant,
+
+      condition,
+
+      refurbishedGrade:
+        condition ===
+          "refurbished"
+          ? refurbishedGrade
+          : null,
+
+      batteryGrade:
+        condition ===
+          "refurbished"
+          ? batteryGrade
+          : null,
+
+      quantity,
+
+      baseUnitPrice,
+
+      batteryUpgradeAmount,
+
+      unitPrice,
+
+      lineSubtotal,
+
+      productName:
+        cleanString(
+          product.name
+        ),
+
+      storage:
+        variant
+          ?.storage
+          ? cleanString(
+              variant.storage
+            )
+          : null,
+
+      color:
+        variant
+          ?.color
+          ? cleanString(
+              variant.color
+            )
+          : null,
+    },
+  };
+}
+
+/* =========================================================
+   EMAIL ITEM TEXT
+========================================================= */
+
+function buildEmailItemText(
+  item:
+    ValidatedOrderItem,
+
+  language:
+    Language
+) {
+  const conditionLabel =
+    language ===
+      "pt"
+      ? item.condition ===
+          "refurbished"
+        ? "Recondicionado"
+        : "Novo"
+      : item.condition ===
+          "refurbished"
+        ? "Refurbished"
+        : "New";
+
+  const lines:
+    string[] = [];
+
+  lines.push(
+    item.productName
+  );
+
+  if (
+    item.storage
+  ) {
+    lines.push(
+      `${
+        language ===
+          "pt"
+          ? "Armazenamento"
+          : "Storage"
+      }: ${item.storage}`
+    );
+  }
+
+  if (
+    item.color
+  ) {
+    lines.push(
+      `${
+        language ===
+          "pt"
+          ? "Cor"
+          : "Colour"
+      }: ${item.color}`
+    );
+  }
+
+  lines.push(
+    `${
+      language ===
+        "pt"
+        ? "Condição"
+        : "Condition"
+    }: ${conditionLabel}`
+  );
+
+  if (
+    item.refurbishedGrade
+  ) {
+    lines.push(
+      `${
+        language ===
+          "pt"
+          ? "Condição estética"
+          : "Cosmetic grade"
+      }: ${getRefurbishedGradeLabel(
+        item.refurbishedGrade,
+        language
+      )}`
+    );
+  }
+
+  if (
+    item.batteryGrade
+  ) {
+    lines.push(
+      `${
+        language ===
+          "pt"
+          ? "Bateria"
+          : "Battery"
+      }: ${getBatteryGradeLabel(
+        item.batteryGrade,
+        language
+      )}`
+    );
+  }
+
+  lines.push(
+    `${
+      language ===
+        "pt"
+        ? "Quantidade"
+        : "Quantity"
+    }: ${item.quantity}`
+  );
+
+  lines.push(
+    `${
+      language ===
+        "pt"
+        ? "Preço unitário"
+        : "Unit price"
+    }: ${formatMoney(
+      item.unitPrice,
+      SETTLEMENT_CURRENCY,
+      language
+    )}`
+  );
+
+  lines.push(
+    `${
+      language ===
+        "pt"
+        ? "Subtotal"
+        : "Subtotal"
+    }: ${formatMoney(
+      item.lineSubtotal,
+      SETTLEMENT_CURRENCY,
+      language
+    )}`
+  );
+
+  return lines.join(
+    "\n"
+  );
+}
+
+/* =========================================================
+   EMAIL ITEM HTML
+========================================================= */
+
+function buildEmailItemHtml(
+  item:
+    ValidatedOrderItem,
+
+  language:
+    Language
+) {
+  const conditionLabel =
+    language ===
+      "pt"
+      ? item.condition ===
+          "refurbished"
+        ? "Recondicionado"
+        : "Novo"
+      : item.condition ===
+          "refurbished"
+        ? "Refurbished"
+        : "New";
+
+  const grade =
+    item.refurbishedGrade
+      ? getRefurbishedGradeLabel(
+          item.refurbishedGrade,
+          language
+        )
+      : null;
+
+  const battery =
+    item.batteryGrade
+      ? getBatteryGradeLabel(
+          item.batteryGrade,
+          language
+        )
+      : null;
+
+  return `
+    <div style="padding:18px 0;border-bottom:1px solid #e4e7ec;">
+      <div style="font-size:17px;font-weight:900;color:#111827;">
+        ${escapeHtml(
+          item.productName
+        )}
+      </div>
+
+      ${
+        item.storage
+          ? `
+            <div style="font-size:13px;color:#667085;margin-top:6px;">
+              ${
+                language ===
+                  "pt"
+                  ? "Armazenamento"
+                  : "Storage"
+              }: ${escapeHtml(
+                item.storage
+              )}
+            </div>
+          `
+          : ""
+      }
+
+      ${
+        item.color
+          ? `
+            <div style="font-size:13px;color:#667085;margin-top:3px;">
+              ${
+                language ===
+                  "pt"
+                  ? "Cor"
+                  : "Colour"
+              }: ${escapeHtml(
+                item.color
+              )}
+            </div>
+          `
+          : ""
+      }
+
+      <div style="font-size:13px;color:#667085;margin-top:3px;">
+        ${
+          language ===
+            "pt"
+            ? "Condição"
+            : "Condition"
+        }: ${escapeHtml(
+          conditionLabel
+        )}
+      </div>
+
+      ${
+        grade
+          ? `
+            <div style="font-size:13px;color:#667085;margin-top:3px;">
+              ${
+                language ===
+                  "pt"
+                  ? "Condição estética"
+                  : "Cosmetic grade"
+              }: ${escapeHtml(
+                grade
+              )}
+            </div>
+          `
+          : ""
+      }
+
+      ${
+        battery
+          ? `
+            <div style="font-size:13px;color:#667085;margin-top:3px;">
+              ${
+                language ===
+                  "pt"
+                  ? "Bateria"
+                  : "Battery"
+              }: ${escapeHtml(
+                battery
+              )}
+            </div>
+          `
+          : ""
+      }
+
+      ${
+        item.batteryUpgradeAmount >
+        0
+          ? `
+            <div style="font-size:13px;color:#667085;margin-top:3px;">
+              ${
+                language ===
+                  "pt"
+                  ? "Upgrade de bateria"
+                  : "Battery upgrade"
+              }: +${formatMoney(
+                item.batteryUpgradeAmount,
+                SETTLEMENT_CURRENCY,
+                language
+              )}
+            </div>
+          `
+          : ""
+      }
+
+      <div style="font-size:13px;color:#667085;margin-top:8px;">
+        ${
+          language ===
+            "pt"
+            ? "Quantidade"
+            : "Quantity"
+        }: ${item.quantity}
+      </div>
+
+      <div style="font-size:13px;color:#667085;margin-top:3px;">
+        ${
+          language ===
+            "pt"
+            ? "Preço unitário"
+            : "Unit price"
+        }: ${formatMoney(
+          item.unitPrice,
+          SETTLEMENT_CURRENCY,
+          language
+        )}
+      </div>
+
+      <div style="font-size:15px;font-weight:900;color:#111827;margin-top:6px;">
+        ${
+          language ===
+            "pt"
+            ? "Subtotal"
+            : "Subtotal"
+        }: ${formatMoney(
+          item.lineSubtotal,
+          SETTLEMENT_CURRENCY,
+          language
+        )}
+      </div>
+    </div>
+  `;
+}
+
+/* =========================================================
    EMAIL
 ========================================================= */
 
@@ -1330,25 +2271,13 @@ async function sendOrderEmail({
 
   orderNumber,
 
-  productName,
-  storage,
-  color,
-  condition,
+  items,
 
-  refurbishedGrade,
-  batteryGrade,
-  batteryUpgradeAmount,
-
-  quantity,
-
-  baseUnitPrice,
-  unitPrice,
   subtotalAmount,
   shippingAmount,
   totalAmount,
 
   displayCurrency,
-  displayUnitPrice,
   displaySubtotalAmount,
   displayShippingAmount,
   displayTotalAmount,
@@ -1396,39 +2325,8 @@ async function sendOrderEmail({
   orderNumber:
     string;
 
-  productName:
-    string;
-
-  storage:
-    | string
-    | null;
-
-  color:
-    | string
-    | null;
-
-  condition:
-    SellCondition;
-
-  refurbishedGrade:
-    | RefurbishedGrade
-    | null;
-
-  batteryGrade:
-    | BatteryGrade
-    | null;
-
-  batteryUpgradeAmount:
-    number;
-
-  quantity:
-    number;
-
-  baseUnitPrice:
-    number;
-
-  unitPrice:
-    number;
+  items:
+    ValidatedOrderItem[];
 
   subtotalAmount:
     number;
@@ -1441,9 +2339,6 @@ async function sendOrderEmail({
 
   displayCurrency:
     DisplayCurrency;
-
-  displayUnitPrice:
-    number;
 
   displaySubtotalAmount:
     number;
@@ -1466,27 +2361,6 @@ async function sendOrderEmail({
   language:
     Language;
 }) {
-  const formattedBaseUnitPrice =
-    formatMoney(
-      baseUnitPrice,
-      SETTLEMENT_CURRENCY,
-      language
-    );
-
-  const formattedBatteryUpgrade =
-    formatMoney(
-      batteryUpgradeAmount,
-      SETTLEMENT_CURRENCY,
-      language
-    );
-
-  const formattedUnitPrice =
-    formatMoney(
-      unitPrice,
-      SETTLEMENT_CURRENCY,
-      language
-    );
-
   const formattedSubtotal =
     formatMoney(
       subtotalAmount,
@@ -1505,13 +2379,6 @@ async function sendOrderEmail({
     formatMoney(
       totalAmount,
       SETTLEMENT_CURRENCY,
-      language
-    );
-
-  const formattedDisplayUnit =
-    formatMoney(
-      displayUnitPrice,
-      displayCurrency,
       language
     );
 
@@ -1535,111 +2402,6 @@ async function sendOrderEmail({
       displayCurrency,
       language
     );
-
-  const showCveEquivalent =
-    displayCurrency ===
-      "CVE";
-
-  const conditionLabel =
-    language ===
-      "pt"
-      ? condition ===
-          "refurbished"
-        ? "Recondicionado"
-        : "Novo"
-      : condition ===
-          "refurbished"
-        ? "Refurbished"
-        : "New";
-
-  const gradeLabel =
-    refurbishedGrade
-      ? getRefurbishedGradeLabel(
-          refurbishedGrade,
-          language
-        )
-      : null;
-
-  const batteryLabel =
-    batteryGrade
-      ? getBatteryGradeLabel(
-          batteryGrade,
-          language
-        )
-      : null;
-
-  const safeCustomerName =
-    escapeHtml(
-      customerName
-    );
-
-  const safeProductName =
-    escapeHtml(
-      productName
-    );
-
-  const safeOrderNumber =
-    escapeHtml(
-      orderNumber
-    );
-
-  const safeReference =
-    escapeHtml(
-      paymentReference
-    );
-
-  const safeAccountName =
-    escapeHtml(
-      bank.account_name
-    );
-
-  const safeIban =
-    escapeHtml(
-      bank.iban
-    );
-
-  const safeBic =
-    escapeHtml(
-      bank.bic
-    );
-
-  const safeBankName =
-    escapeHtml(
-      bank.bank_name
-    );
-
-  const safeBankCountry =
-    escapeHtml(
-      bank.country
-    );
-
-  const safeStorage =
-    storage
-      ? escapeHtml(
-          storage
-        )
-      : "";
-
-  const safeColor =
-    color
-      ? escapeHtml(
-          color
-        )
-      : "";
-
-  const safeGradeLabel =
-    gradeLabel
-      ? escapeHtml(
-          gradeLabel
-        )
-      : "";
-
-  const safeBatteryLabel =
-    batteryLabel
-      ? escapeHtml(
-          batteryLabel
-        )
-      : "";
 
   const textAddress =
     buildTextAddress({
@@ -1695,66 +2457,64 @@ async function sendOrderEmail({
       ? `Instruções de pagamento — ${orderNumber}`
       : `Payment instructions — ${orderNumber}`;
 
-  const refurbishedTextPt =
-    condition ===
-        "refurbished" &&
-      gradeLabel &&
-      batteryLabel
-      ? `
-Condição estética: ${gradeLabel}
-Bateria: ${batteryLabel}
-Preço base da configuração: ${formattedBaseUnitPrice}${
-  batteryUpgradeAmount > 0
-    ? `
-Upgrade de bateria: +${formattedBatteryUpgrade}`
-    : ""
-}`
-      : "";
+  const textItems =
+    items
+      .map(
+        (
+          item,
+          index
+        ) =>
+          `${
+            index + 1
+          }. ${buildEmailItemText(
+            item,
+            language
+          )}`
+      )
+      .join(
+        "\n\n"
+      );
 
-  const refurbishedTextEn =
-    condition ===
-        "refurbished" &&
-      gradeLabel &&
-      batteryLabel
-      ? `
-Cosmetic grade: ${gradeLabel}
-Battery: ${batteryLabel}
-Base configuration price: ${formattedBaseUnitPrice}${
-  batteryUpgradeAmount > 0
-    ? `
-Battery upgrade: +${formattedBatteryUpgrade}`
-    : ""
-}`
-      : "";
+  const htmlItems =
+    items
+      .map(
+        (
+          item
+        ) =>
+          buildEmailItemHtml(
+            item,
+            language
+          )
+      )
+      .join(
+        ""
+      );
 
-  const cveTextPt =
-    showCveEquivalent
-      ? `
+  const displayEquivalentText =
+    displayCurrency ===
+      "CVE"
+      ? language ===
+          "pt"
+        ? `
 
-EQUIVALENTE APRESENTADO EM CVE
+EQUIVALENTE EM CVE
 
-Preço unitário: ${formattedDisplayUnit}
 Subtotal: ${formattedDisplaySubtotal}
 Envio: ${formattedDisplayShipping}
 Total: ${formattedDisplayTotal}
 Taxa: 1 EUR = ${exchangeRate} CVE
 
-Nota: o valor em CVE é apresentado para referência. A transferência bancária desta encomenda deve ser feita em EUR.`
-      : "";
-
-  const cveTextEn =
-    showCveEquivalent
-      ? `
+O valor em CVE é informativo. A transferência deve ser feita em EUR.`
+        : `
 
 CVE DISPLAY EQUIVALENT
 
-Unit price: ${formattedDisplayUnit}
 Subtotal: ${formattedDisplaySubtotal}
 Shipping: ${formattedDisplayShipping}
 Total: ${formattedDisplayTotal}
 Rate: 1 EUR = ${exchangeRate} CVE
 
-Note: the CVE amount is shown for reference. The bank transfer for this order must be made in EUR.`
+The CVE amount is for reference. The bank transfer must be made in EUR.`
       : "";
 
   const text =
@@ -1768,18 +2528,19 @@ Olá ${customerName},
 
 Obrigado pela sua encomenda.
 
-DETALHES DA ENCOMENDA
+NÚMERO DA ENCOMENDA
 
-Número: ${orderNumber}
-Produto: ${productName}
-${storage ? `Armazenamento: ${storage}` : ""}
-${color ? `Cor: ${color}` : ""}
-Condição: ${conditionLabel}${refurbishedTextPt}
-Quantidade: ${quantity}
-Preço unitário final: ${formattedUnitPrice}
+${orderNumber}
+
+ARTIGOS
+
+${textItems}
+
+RESUMO
+
 Subtotal: ${formattedSubtotal}
 Envio: ${formattedShipping}
-Total a transferir: ${formattedTotal}${cveTextPt}
+Total a transferir: ${formattedTotal}${displayEquivalentText}
 
 MORADA DE ENTREGA
 
@@ -1802,7 +2563,7 @@ ${bank.bank_name}
 País do banco:
 ${bank.country}
 
-Moeda da transferência:
+Moeda:
 ${bank.currency}
 
 Montante:
@@ -1812,6 +2573,7 @@ REFERÊNCIA / DESCRIÇÃO:
 ${paymentReference}
 
 IMPORTANTE:
+
 Introduza exatamente ${paymentReference} na referência, descrição ou mensagem da transferência.
 
 Assim conseguimos associar o pagamento à encomenda ${orderNumber}.
@@ -1827,18 +2589,19 @@ Hi ${customerName},
 
 Thank you for your order.
 
-ORDER DETAILS
+ORDER NUMBER
 
-Order number: ${orderNumber}
-Product: ${productName}
-${storage ? `Storage: ${storage}` : ""}
-${color ? `Colour: ${color}` : ""}
-Condition: ${conditionLabel}${refurbishedTextEn}
-Quantity: ${quantity}
-Final unit price: ${formattedUnitPrice}
+${orderNumber}
+
+ITEMS
+
+${textItems}
+
+SUMMARY
+
 Subtotal: ${formattedSubtotal}
 Shipping: ${formattedShipping}
-Total to transfer: ${formattedTotal}${cveTextEn}
+Total to transfer: ${formattedTotal}${displayEquivalentText}
 
 DELIVERY ADDRESS
 
@@ -1861,16 +2624,17 @@ ${bank.bank_name}
 Bank country:
 ${bank.country}
 
-Transfer currency:
+Currency:
 ${bank.currency}
 
 Amount:
 ${formattedTotal}
 
-PAYMENT REFERENCE / DESCRIPTION:
+PAYMENT REFERENCE:
 ${paymentReference}
 
 IMPORTANT:
+
 Enter ${paymentReference} exactly in the reference, description or message field of your transfer.
 
 This allows us to match your payment to order ${orderNumber}.
@@ -1880,353 +2644,310 @@ After payment is confirmed, we will send another confirmation.
 POKAPOK`;
 
   const equivalentHtml =
-    showCveEquivalent
-      ? language ===
-          "pt"
-        ? `
-          <div style="background:#eef4ff;border-radius:16px;padding:18px;margin:18px 0;border:1px solid #d7e5ff;">
-            <div style="font-size:12px;font-weight:800;color:#5d6673;letter-spacing:.5px;">
-              EQUIVALENTE EM CVE
-            </div>
-
-            <div style="font-size:24px;font-weight:900;color:#1261ff;margin-top:6px;">
-              ${formattedDisplayTotal}
-            </div>
-
-            <div style="font-size:13px;color:#5d6673;margin-top:8px;">
-              Subtotal: ${formattedDisplaySubtotal}
-            </div>
-
-            <div style="font-size:13px;color:#5d6673;margin-top:4px;">
-              Envio: ${formattedDisplayShipping}
-            </div>
-
-            <div style="font-size:13px;color:#5d6673;margin-top:8px;">
-              Taxa: 1 EUR = ${exchangeRate} CVE
-            </div>
-
-            <div style="font-size:13px;color:#5d6673;margin-top:6px;">
-              O valor em CVE é informativo. A transferência deve ser feita em EUR.
-            </div>
-          </div>`
-        : `
-          <div style="background:#eef4ff;border-radius:16px;padding:18px;margin:18px 0;border:1px solid #d7e5ff;">
-            <div style="font-size:12px;font-weight:800;color:#5d6673;letter-spacing:.5px;">
-              CVE DISPLAY EQUIVALENT
-            </div>
-
-            <div style="font-size:24px;font-weight:900;color:#1261ff;margin-top:6px;">
-              ${formattedDisplayTotal}
-            </div>
-
-            <div style="font-size:13px;color:#5d6673;margin-top:8px;">
-              Subtotal: ${formattedDisplaySubtotal}
-            </div>
-
-            <div style="font-size:13px;color:#5d6673;margin-top:4px;">
-              Shipping: ${formattedDisplayShipping}
-            </div>
-
-            <div style="font-size:13px;color:#5d6673;margin-top:8px;">
-              Rate: 1 EUR = ${exchangeRate} CVE
-            </div>
-
-            <div style="font-size:13px;color:#5d6673;margin-top:6px;">
-              The CVE amount is for reference. The bank transfer must be made in EUR.
-            </div>
-          </div>`
-      : "";
-
-  const refurbishedHtml =
-    condition ===
-        "refurbished" &&
-      gradeLabel &&
-      batteryLabel
+    displayCurrency ===
+      "CVE"
       ? `
-        <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e2e4e8;">
-          <div>
-            <strong>${
+        <div style="background:#eef4ff;border-radius:16px;padding:18px;margin:20px 0;border:1px solid #d7e5ff;">
+          <div style="font-size:12px;font-weight:900;color:#667085;letter-spacing:.5px;">
+            ${
               language ===
                 "pt"
-                ? "Condição estética"
-                : "Cosmetic grade"
-            }:</strong>
-            ${safeGradeLabel}
+                ? "EQUIVALENTE EM CVE"
+                : "CVE DISPLAY EQUIVALENT"
+            }
           </div>
 
-          <div style="margin-top:5px;">
-            <strong>${
+          <div style="font-size:26px;font-weight:900;color:#1261ff;margin-top:7px;">
+            ${formattedDisplayTotal}
+          </div>
+
+          <div style="font-size:13px;color:#667085;margin-top:8px;">
+            ${
               language ===
                 "pt"
-                ? "Bateria"
-                : "Battery"
-            }:</strong>
-            ${safeBatteryLabel}
+                ? "Subtotal"
+                : "Subtotal"
+            }: ${formattedDisplaySubtotal}
           </div>
 
-          ${
-            batteryUpgradeAmount >
-            0
-              ? `
-                <div style="margin-top:5px;">
-                  <strong>${
-                    language ===
-                      "pt"
-                      ? "Upgrade de bateria"
-                      : "Battery upgrade"
-                  }:</strong>
-                  +${formattedBatteryUpgrade}
-                </div>
-              `
-              : ""
-          }
+          <div style="font-size:13px;color:#667085;margin-top:4px;">
+            ${
+              language ===
+                "pt"
+                ? "Envio"
+                : "Shipping"
+            }: ${formattedDisplayShipping}
+          </div>
+
+          <div style="font-size:13px;color:#667085;margin-top:8px;">
+            ${
+              language ===
+                "pt"
+                ? "Taxa"
+                : "Rate"
+            }: 1 EUR = ${exchangeRate} CVE
+          </div>
+
+          <div style="font-size:12px;color:#667085;margin-top:8px;">
+            ${
+              language ===
+                "pt"
+                ? "O valor em CVE é informativo. A transferência deve ser feita em EUR."
+                : "The CVE amount is for reference. The bank transfer must be made in EUR."
+            }
+          </div>
         </div>
       `
       : "";
 
   const html =
-    language ===
-      "pt"
-      ? `
+    `
 <!doctype html>
 <html>
-<body style="margin:0;padding:0;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111;">
-  <div style="max-width:620px;margin:0 auto;padding:32px 20px;">
-    <div style="background:#fff;border-radius:24px;padding:30px;border:1px solid #e5e5e5;">
+<body style="margin:0;padding:0;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111827;">
 
-      <div style="font-weight:900;letter-spacing:2px;color:#1261ff;margin-bottom:22px;">
+  <div style="max-width:640px;margin:0 auto;padding:32px 20px;">
+
+    <div style="background:#ffffff;border-radius:24px;padding:30px;border:1px solid #e5e7eb;">
+
+      <div style="font-weight:900;letter-spacing:2px;color:#1261ff;margin-bottom:24px;">
         POKAPOK
       </div>
 
-      <h1 style="font-size:28px;margin:0 0 10px;">
-        Recebemos a sua encomenda.
+      <h1 style="font-size:28px;line-height:34px;margin:0;">
+        ${
+          language ===
+            "pt"
+            ? "Recebemos a sua encomenda."
+            : "We received your order."
+        }
       </h1>
 
-      <p style="color:#555;line-height:1.6;">
-        Olá ${safeCustomerName}, use os dados abaixo para concluir o pagamento.
+      <p style="color:#667085;line-height:1.6;margin-top:12px;">
+        ${
+          language ===
+            "pt"
+            ? `Olá ${escapeHtml(
+                customerName
+              )}, utilize os dados abaixo para concluir o pagamento.`
+            : `Hi ${escapeHtml(
+                customerName
+              )}, use the details below to complete your payment.`
+        }
       </p>
 
       <div style="background:#f6f7f9;border-radius:16px;padding:18px;margin:22px 0;">
-        <strong>Encomenda ${safeOrderNumber}</strong>
-
-        <br><br>
-
-        ${safeProductName}<br>
-
-        ${safeStorage ? `${safeStorage}<br>` : ""}
-
-        ${safeColor ? `${safeColor}<br>` : ""}
-
-        ${conditionLabel}<br>
-
-        ${refurbishedHtml}
-
-        <div style="margin-top:12px;">
-          Quantidade: ${quantity}
+        <div style="font-size:11px;color:#667085;font-weight:900;letter-spacing:1px;">
+          ${
+            language ===
+              "pt"
+              ? "ENCOMENDA"
+              : "ORDER"
+          }
         </div>
 
-        <div style="margin-top:5px;">
-          Preço unitário: ${formattedUnitPrice}
+        <div style="font-size:20px;font-weight:900;margin-top:5px;">
+          ${escapeHtml(
+            orderNumber
+          )}
+        </div>
+      </div>
+
+      <h2 style="font-size:20px;margin-top:26px;">
+        ${
+          language ===
+            "pt"
+            ? "Artigos"
+            : "Items"
+        }
+      </h2>
+
+      <div style="background:#fafafa;border-radius:18px;padding:0 18px;border:1px solid #e5e7eb;">
+        ${htmlItems}
+      </div>
+
+      <div style="margin-top:22px;background:#111827;border-radius:18px;padding:20px;color:#ffffff;">
+
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+          <span style="color:#cbd5e1;">
+            ${
+              language ===
+                "pt"
+                ? "Subtotal"
+                : "Subtotal"
+            }
+          </span>
+
+          <strong>
+            ${formattedSubtotal}
+          </strong>
         </div>
 
-        <div style="margin-top:5px;">
-          Subtotal: ${formattedSubtotal}
+        <div style="display:flex;justify-content:space-between;margin-bottom:12px;">
+          <span style="color:#cbd5e1;">
+            ${
+              language ===
+                "pt"
+                ? "Envio"
+                : "Shipping"
+            }
+          </span>
+
+          <strong>
+            ${formattedShipping}
+          </strong>
         </div>
 
-        <div style="margin-top:5px;">
-          Envio: ${formattedShipping}
+        <div style="border-top:1px solid rgba(255,255,255,.14);padding-top:14px;font-size:21px;font-weight:900;">
+          ${
+            language ===
+              "pt"
+              ? "Total"
+              : "Total"
+          }: ${formattedTotal}
         </div>
 
-        <div style="margin-top:12px;font-size:18px;">
-          <strong>Total a transferir: ${formattedTotal}</strong>
-        </div>
       </div>
 
       ${equivalentHtml}
 
-      <h2 style="font-size:20px;">
-        Morada de entrega
+      <h2 style="font-size:20px;margin-top:28px;">
+        ${
+          language ===
+            "pt"
+            ? "Morada de entrega"
+            : "Delivery address"
+        }
       </h2>
 
-      <div style="background:#f6f7f9;border-radius:16px;padding:18px;margin:14px 0 22px;line-height:1.7;">
+      <div style="background:#f6f7f9;border-radius:16px;padding:18px;line-height:1.7;">
         ${htmlAddress}
       </div>
 
-      <h2 style="font-size:20px;">
-        Transferência bancária
+      <h2 style="font-size:20px;margin-top:28px;">
+        ${
+          language ===
+            "pt"
+            ? "Transferência bancária"
+            : "Bank transfer"
+        }
       </h2>
 
-      <p>
-        <strong>Titular:</strong><br>
-        ${safeAccountName}
-      </p>
+      <div style="background:#f6f7f9;border-radius:16px;padding:18px;line-height:1.7;">
 
-      <p>
-        <strong>IBAN:</strong><br>
-        ${safeIban}
-      </p>
-
-      <p>
-        <strong>BIC / SWIFT:</strong><br>
-        ${safeBic}
-      </p>
-
-      <p>
-        <strong>Banco:</strong><br>
-        ${safeBankName}
-      </p>
-
-      <p>
-        <strong>País:</strong><br>
-        ${safeBankCountry}
-      </p>
-
-      <p>
-        <strong>Moeda:</strong><br>
-        ${bank.currency}
-      </p>
-
-      <p>
-        <strong>Montante:</strong><br>
-        ${formattedTotal}
-      </p>
-
-      <div style="background:#111827;border-radius:16px;padding:18px;margin-top:22px;">
-        <div style="font-size:12px;font-weight:700;color:#c7ccd4;">
-          REFERÊNCIA / DESCRIÇÃO
-        </div>
-
-        <div style="font-size:24px;font-weight:900;color:#fff;margin-top:6px;">
-          ${safeReference}
-        </div>
-      </div>
-
-      <p style="color:#555;line-height:1.6;margin-top:22px;">
-        Introduza esta referência exatamente no campo de descrição/mensagem da transferência.
-      </p>
-
-    </div>
-  </div>
-</body>
-</html>`
-      : `
-<!doctype html>
-<html>
-<body style="margin:0;padding:0;background:#f5f5f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111;">
-  <div style="max-width:620px;margin:0 auto;padding:32px 20px;">
-    <div style="background:#fff;border-radius:24px;padding:30px;border:1px solid #e5e5e5;">
-
-      <div style="font-weight:900;letter-spacing:2px;color:#1261ff;margin-bottom:22px;">
-        POKAPOK
-      </div>
-
-      <h1 style="font-size:28px;margin:0 0 10px;">
-        We received your order.
-      </h1>
-
-      <p style="color:#555;line-height:1.6;">
-        Hi ${safeCustomerName}, use the bank details below to complete your payment.
-      </p>
-
-      <div style="background:#f6f7f9;border-radius:16px;padding:18px;margin:22px 0;">
-        <strong>Order ${safeOrderNumber}</strong>
+        <strong>
+          ${
+            language ===
+              "pt"
+              ? "Titular"
+              : "Account holder"
+          }
+        </strong>
+        <br>
+        ${escapeHtml(
+          bank.account_name
+        )}
 
         <br><br>
 
-        ${safeProductName}<br>
+        <strong>IBAN</strong>
+        <br>
+        ${escapeHtml(
+          bank.iban
+        )}
 
-        ${safeStorage ? `${safeStorage}<br>` : ""}
+        <br><br>
 
-        ${safeColor ? `${safeColor}<br>` : ""}
+        <strong>BIC / SWIFT</strong>
+        <br>
+        ${escapeHtml(
+          bank.bic
+        )}
 
-        ${conditionLabel}<br>
+        <br><br>
 
-        ${refurbishedHtml}
+        <strong>
+          ${
+            language ===
+              "pt"
+              ? "Banco"
+              : "Bank"
+          }
+        </strong>
+        <br>
+        ${escapeHtml(
+          bank.bank_name
+        )}
 
-        <div style="margin-top:12px;">
-          Quantity: ${quantity}
-        </div>
+        <br><br>
 
-        <div style="margin-top:5px;">
-          Unit price: ${formattedUnitPrice}
-        </div>
+        <strong>
+          ${
+            language ===
+              "pt"
+              ? "Moeda"
+              : "Currency"
+          }
+        </strong>
+        <br>
+        ${escapeHtml(
+          bank.currency
+        )}
 
-        <div style="margin-top:5px;">
-          Subtotal: ${formattedSubtotal}
-        </div>
+        <br><br>
 
-        <div style="margin-top:5px;">
-          Shipping: ${formattedShipping}
-        </div>
-
-        <div style="margin-top:12px;font-size:18px;">
-          <strong>Total to transfer: ${formattedTotal}</strong>
-        </div>
-      </div>
-
-      ${equivalentHtml}
-
-      <h2 style="font-size:20px;">
-        Delivery address
-      </h2>
-
-      <div style="background:#f6f7f9;border-radius:16px;padding:18px;margin:14px 0 22px;line-height:1.7;">
-        ${htmlAddress}
-      </div>
-
-      <h2 style="font-size:20px;">
-        Bank transfer
-      </h2>
-
-      <p>
-        <strong>Account holder:</strong><br>
-        ${safeAccountName}
-      </p>
-
-      <p>
-        <strong>IBAN:</strong><br>
-        ${safeIban}
-      </p>
-
-      <p>
-        <strong>BIC / SWIFT:</strong><br>
-        ${safeBic}
-      </p>
-
-      <p>
-        <strong>Bank:</strong><br>
-        ${safeBankName}
-      </p>
-
-      <p>
-        <strong>Country:</strong><br>
-        ${safeBankCountry}
-      </p>
-
-      <p>
-        <strong>Currency:</strong><br>
-        ${bank.currency}
-      </p>
-
-      <p>
-        <strong>Amount:</strong><br>
+        <strong>
+          ${
+            language ===
+              "pt"
+              ? "Montante"
+              : "Amount"
+          }
+        </strong>
+        <br>
         ${formattedTotal}
-      </p>
 
-      <div style="background:#111827;border-radius:16px;padding:18px;margin-top:22px;">
-        <div style="font-size:12px;font-weight:700;color:#c7ccd4;">
-          PAYMENT REFERENCE
-        </div>
-
-        <div style="font-size:24px;font-weight:900;color:#fff;margin-top:6px;">
-          ${safeReference}
-        </div>
       </div>
+
+      <div style="background:#1261ff;border-radius:18px;padding:20px;margin-top:22px;">
+
+        <div style="font-size:11px;color:#dce8ff;font-weight:900;letter-spacing:1px;">
+          ${
+            language ===
+              "pt"
+              ? "REFERÊNCIA / DESCRIÇÃO"
+              : "PAYMENT REFERENCE"
+          }
+        </div>
+
+        <div style="font-size:24px;font-weight:900;color:#ffffff;margin-top:7px;">
+          ${escapeHtml(
+            paymentReference
+          )}
+        </div>
+
+      </div>
+
+      <p style="color:#667085;font-size:13px;line-height:1.6;margin-top:18px;">
+        ${
+          language ===
+            "pt"
+            ? `Introduza exatamente ${escapeHtml(
+                paymentReference
+              )} no campo de referência, descrição ou mensagem da transferência.`
+            : `Enter ${escapeHtml(
+                paymentReference
+              )} exactly in the reference, description or message field of your transfer.`
+        }
+      </p>
 
     </div>
+
   </div>
+
 </body>
-</html>`;
+</html>
+`;
 
   const response =
     await fetch(
@@ -2343,14 +3064,6 @@ Deno.serve(
           "RESEND_API_KEY"
         );
 
-      /*
-       * IMPORTANT:
-       * Do not fall back to the old Lumina sender.
-       *
-       * Example secret:
-       *
-       * POKAPOK_FROM_EMAIL="POKAPOK <orders@pokapok.cv>"
-       */
       const fromEmail =
         Deno.env.get(
           "POKAPOK_FROM_EMAIL"
@@ -2429,31 +3142,6 @@ Deno.serve(
         return serverError(
           "SUPABASE_CONFIGURATION_MISSING",
           "SUPABASE_SERVICE_ROLE_KEY is not configured."
-        );
-      }
-
-      /*
-       * Resend is required whenever the customer supplies
-       * an email address.
-       *
-       * We validate the configuration here so a broken
-       * deployment is easy to detect.
-       */
-      if (
-        !resendApiKey
-      ) {
-        return serverError(
-          "RESEND_CONFIGURATION_MISSING",
-          "RESEND_API_KEY is not configured."
-        );
-      }
-
-      if (
-        !fromEmail
-      ) {
-        return serverError(
-          "RESEND_CONFIGURATION_MISSING",
-          "POKAPOK_FROM_EMAIL is not configured."
         );
       }
 
@@ -2597,37 +3285,7 @@ Deno.serve(
         );
 
       /* ===================================================
-         PRODUCT
-      =================================================== */
-
-      const productId =
-        cleanString(
-          body.product_id
-        );
-
-      const variantId =
-        cleanString(
-          body.variant_id
-        ) ||
-        null;
-
-      const conditionRaw =
-        cleanString(
-          body.condition
-        ).toLowerCase();
-
-      const refurbishedGradeRaw =
-        cleanString(
-          body.refurbished_grade
-        );
-
-      const batteryGradeRaw =
-        cleanString(
-          body.battery_grade
-        );
-
-      /* ===================================================
-         ORDER / PAYMENT
+         PAYMENT
       =================================================== */
 
       const paymentMethod =
@@ -2648,12 +3306,6 @@ Deno.serve(
       const displayCurrency =
         normalizeDisplayCurrency(
           body.display_currency
-        );
-
-      const quantity =
-        Number(
-          body.quantity ??
-            1
         );
 
       /* ===================================================
@@ -2690,8 +3342,28 @@ Deno.serve(
         );
       }
 
+      if (
+        paymentMethod !==
+          "bank_transfer"
+      ) {
+        return badRequest(
+          "PAYMENT_METHOD_NOT_AVAILABLE",
+          "Only bank transfer is currently available."
+        );
+      }
+
+      if (
+        displayCurrency ===
+          null
+      ) {
+        return badRequest(
+          "INVALID_DISPLAY_CURRENCY",
+          "Invalid display currency. Use CVE or EUR."
+        );
+      }
+
       /* ===================================================
-         DESTINATION VALIDATION
+         DESTINATION
       =================================================== */
 
       const destination =
@@ -2715,427 +3387,122 @@ Deno.serve(
         );
 
       /* ===================================================
-         PRODUCT VALIDATION
+         ITEMS
       =================================================== */
 
       if (
-        !productId
-      ) {
-        return badRequest(
-          "PRODUCT_REQUIRED",
-          "Product ID is required."
-        );
-      }
-
-      if (
-        conditionRaw !==
-          "new" &&
-        conditionRaw !==
-          "refurbished"
-      ) {
-        return badRequest(
-          "INVALID_CONDITION",
-          "Invalid product condition."
-        );
-      }
-
-      const condition =
-        conditionRaw as
-          SellCondition;
-
-      if (
-        !Number.isInteger(
-          quantity
+        !Array.isArray(
+          body.items
         ) ||
-        quantity < 1 ||
-        quantity > 10
+        body.items.length ===
+          0
       ) {
         return badRequest(
-          "INVALID_QUANTITY",
-          "Quantity must be a whole number between 1 and 10."
+          "ITEMS_REQUIRED",
+          "At least one order item is required."
         );
       }
 
       if (
-        paymentMethod !==
-          "bank_transfer"
+        body.items.length >
+        MAX_ORDER_LINES
       ) {
         return badRequest(
-          "PAYMENT_METHOD_NOT_AVAILABLE",
-          "Only bank transfer is currently available."
+          "TOO_MANY_ORDER_LINES",
+          `A maximum of ${MAX_ORDER_LINES} different items can be purchased in one order.`
         );
       }
 
-      if (
-        displayCurrency ===
-          null
+      const validatedItems:
+        ValidatedOrderItem[] =
+        [];
+
+      let totalQuantity =
+        0;
+
+      for (
+        let index = 0;
+        index <
+        body.items.length;
+        index++
       ) {
-        return badRequest(
-          "INVALID_DISPLAY_CURRENCY",
-          "Invalid display currency. Use CVE or EUR."
-        );
-      }
+        const rawItem =
+          body.items[
+            index
+          ] as
+            RequestItem;
 
-      /* ===================================================
-         REFURBISHED CONFIGURATION VALIDATION
-      =================================================== */
-
-      let refurbishedGrade:
-        | RefurbishedGrade
-        | null =
-        null;
-
-      let batteryGrade:
-        | BatteryGrade
-        | null =
-        null;
-
-      if (
-        condition ===
-          "refurbished"
-      ) {
-        refurbishedGrade =
-          normalizeRefurbishedGrade(
-            refurbishedGradeRaw
-          );
-
-        batteryGrade =
-          normalizeBatteryGrade(
-            batteryGradeRaw
+        const result =
+          await validateOrderItem(
+            supabase,
+            rawItem,
+            index
           );
 
         if (
-          !variantId
+          !result.success
         ) {
           return badRequest(
-            "REFURBISHED_VARIANT_REQUIRED",
-            "A variant is required for a refurbished order."
+            result.code,
+            result.message
           );
         }
 
+        totalQuantity +=
+          result
+            .item
+            .quantity;
+
         if (
-          !refurbishedGrade
+          totalQuantity >
+          MAX_TOTAL_QUANTITY
         ) {
           return badRequest(
-            "REFURBISHED_GRADE_REQUIRED",
-            "A valid refurbished cosmetic grade is required."
+            "TOTAL_QUANTITY_TOO_HIGH",
+            `A maximum of ${MAX_TOTAL_QUANTITY} total units can be purchased in one order.`
           );
         }
 
-        if (
-          !batteryGrade
-        ) {
-          return badRequest(
-            "BATTERY_GRADE_REQUIRED",
-            "A valid battery option is required."
-          );
-        }
-      } else {
-        if (
-          refurbishedGradeRaw ||
-          batteryGradeRaw
-        ) {
-          return badRequest(
-            "INVALID_REFURBISHED_CONFIGURATION",
-            "Refurbished grade and battery options cannot be used with a new product."
-          );
-        }
-      }
-
-      /* ===================================================
-         PRODUCT
-      =================================================== */
-
-      const {
-        data:
-          productData,
-
-        error:
-          productError,
-      } =
-        await supabase
-          .from(
-            "products"
-          )
-          .select(`
-            id,
-            name,
-            slug,
-            condition,
-            refurbished_enabled,
-            sale_price,
-            promotional_price,
-            available,
-            published
-          `)
-          .eq(
-            "id",
-            productId
-          )
-          .maybeSingle();
-
-      if (
-        productError
-      ) {
-        console.error(
-          "Product lookup error:",
-          productError
-        );
-
-        return serverError(
-          "PRODUCT_QUERY_FAILED",
-          "Could not load product."
-        );
-      }
-
-      if (
-        !productData
-      ) {
-        return badRequest(
-          "PRODUCT_NOT_FOUND",
-          "The selected product could not be found."
-        );
-      }
-
-      const product =
-        productData as
-          ProductRow;
-
-      if (
-        !product.published ||
-        !product.available
-      ) {
-        return badRequest(
-          "PRODUCT_UNAVAILABLE",
-          "This product is currently unavailable."
-        );
-      }
-
-      if (
-        condition ===
-          "new" &&
-        !productCanBeSoldNew(
-          product
-        )
-      ) {
-        return badRequest(
-          "NEW_NOT_AVAILABLE",
-          "This product is not available as new."
-        );
-      }
-
-      if (
-        condition ===
-          "refurbished" &&
-        !productCanBeSoldRefurbished(
-          product
-        )
-      ) {
-        return badRequest(
-          "REFURBISHED_NOT_AVAILABLE",
-          "This product is not available refurbished."
+        validatedItems.push(
+          result.item
         );
       }
 
       /* ===================================================
-         VARIANT
-      =================================================== */
-
-      let variant:
-        | VariantRow
-        | null =
-        null;
-
-      if (
-        variantId
-      ) {
-        const {
-          data:
-            variantData,
-
-          error:
-            variantError,
-        } =
-          await supabase
-            .from(
-              "product_variants"
-            )
-            .select(`
-              id,
-              product_id,
-              storage,
-              color,
-              sku,
-              available,
-
-              sale_price,
-              promotional_price,
-
-              refurbished_sale_price,
-              refurbished_promotional_price,
-
-              refurbished_correct_sale_price,
-              refurbished_correct_promotional_price,
-
-              refurbished_good_sale_price,
-              refurbished_good_promotional_price,
-
-              refurbished_excellent_sale_price,
-              refurbished_excellent_promotional_price,
-
-              refurbished_premium_sale_price,
-              refurbished_premium_promotional_price
-            `)
-            .eq(
-              "id",
-              variantId
-            )
-            .eq(
-              "product_id",
-              product.id
-            )
-            .maybeSingle();
-
-        if (
-          variantError
-        ) {
-          console.error(
-            "Variant lookup error:",
-            variantError
-          );
-
-          return serverError(
-            "VARIANT_QUERY_FAILED",
-            "Could not load product variant."
-          );
-        }
-
-        if (
-          !variantData
-        ) {
-          return badRequest(
-            "VARIANT_NOT_FOUND",
-            "The selected product variant could not be found."
-          );
-        }
-
-        variant =
-          variantData as
-            VariantRow;
-
-        if (
-          !variant.available
-        ) {
-          return badRequest(
-            "VARIANT_UNAVAILABLE",
-            "The selected product variant is currently unavailable."
-          );
-        }
-      }
-
-      /* ===================================================
-         AUTHORITATIVE BASE PRICE
-      =================================================== */
-
-      let baseUnitPrice:
-        number;
-
-      try {
-        baseUnitPrice =
-          roundMoney(
-            getAuthoritativeBasePrice({
-              product,
-              variant,
-              condition,
-              refurbishedGrade,
-            })
-          );
-      } catch (
-        error
-      ) {
-        const code =
-          error instanceof
-            Error
-            ? error.message
-            : "PRICE_NOT_AVAILABLE";
-
-        const message =
-          code ===
-            "REFURBISHED_GRADE_PRICE_NOT_AVAILABLE"
-            ? "No valid price is configured for the selected refurbished cosmetic grade."
-            : code ===
-                "REFURBISHED_VARIANT_REQUIRED"
-              ? "A product variant is required for this refurbished configuration."
-              : code ===
-                  "REFURBISHED_GRADE_REQUIRED"
-                ? "A refurbished cosmetic grade is required."
-                : code ===
-                    "NEW_NOT_AVAILABLE"
-                  ? "This product is not available as new."
-                  : code ===
-                      "REFURBISHED_NOT_AVAILABLE"
-                    ? "This product is not available refurbished."
-                    : "The selected configuration does not have a valid price.";
-
-        return badRequest(
-          code,
-          message
-        );
-      }
-
-      if (
-        !Number.isFinite(
-          baseUnitPrice
-        ) ||
-        baseUnitPrice <= 0
-      ) {
-        return badRequest(
-          "PRICE_NOT_AVAILABLE",
-          "The selected configuration does not have a valid price."
-        );
-      }
-
-      /* ===================================================
-         BATTERY PRICE
-      =================================================== */
-
-      const batteryUpgradeAmount =
-        condition ===
-            "refurbished" &&
-          batteryGrade ===
-            "new"
-          ? NEW_BATTERY_UPGRADE_PRICE
-          : 0;
-
-      /* ===================================================
-         FINAL UNIT PRICE
-      =================================================== */
-
-      const unitPrice =
-        roundMoney(
-          baseUnitPrice +
-            batteryUpgradeAmount
-        );
-
-      /* ===================================================
-         SUBTOTAL
+         TOTALS
       =================================================== */
 
       const subtotalAmount =
         roundMoney(
-          unitPrice *
-            quantity
-        );
+          validatedItems.reduce(
+            (
+              total:
+                number,
 
-      /* ===================================================
-         FINAL TOTAL
-      =================================================== */
+              item:
+                ValidatedOrderItem
+            ) =>
+              total +
+              item.lineSubtotal,
+            0
+          )
+        );
 
       const totalAmount =
         roundMoney(
           subtotalAmount +
             shippingAmount
         );
+
+      if (
+        subtotalAmount <= 0 ||
+        totalAmount <= 0
+      ) {
+        return badRequest(
+          "INVALID_ORDER_TOTAL",
+          "The calculated order total is invalid."
+        );
+      }
 
       /* ===================================================
          DISPLAY CURRENCY
@@ -3146,12 +3513,6 @@ Deno.serve(
           "CVE"
           ? EUR_TO_CVE
           : 1;
-
-      const displayUnitPrice =
-        convertEurForDisplay(
-          unitPrice,
-          displayCurrency
-        );
 
       const displaySubtotalAmount =
         convertEurForDisplay(
@@ -3172,31 +3533,6 @@ Deno.serve(
         );
 
       /* ===================================================
-         PRODUCT DISPLAY DATA
-      =================================================== */
-
-      const productName =
-        cleanString(
-          product.name
-        );
-
-      const storage =
-        variant
-          ?.storage
-          ? cleanString(
-              variant.storage
-            )
-          : null;
-
-      const color =
-        variant
-          ?.color
-          ? cleanString(
-              variant.color
-            )
-          : null;
-
-      /* ===================================================
          IDENTIFIERS
       =================================================== */
 
@@ -3205,6 +3541,50 @@ Deno.serve(
 
       const paymentReference =
         createPaymentReference();
+
+      /* ===================================================
+         LEGACY ORDER FIELDS
+
+         orders still contains the original single-product
+         columns. Keep them populated from the first line so
+         the existing dashboard remains compatible.
+      =================================================== */
+
+      const firstItem =
+        validatedItems[0];
+
+      const legacyProductName =
+        validatedItems.length ===
+          1
+          ? firstItem.productName
+          : `${firstItem.productName} + ${validatedItems.length - 1} more`;
+
+      const totalBatteryUpgradeAmount =
+        roundMoney(
+          validatedItems.reduce(
+            (
+              total:
+                number,
+
+              item:
+                ValidatedOrderItem
+            ) =>
+              total +
+              (
+                item
+                  .batteryUpgradeAmount *
+                item
+                  .quantity
+              ),
+            0
+          )
+        );
+
+      const legacyDisplayUnitPrice =
+        convertEurForDisplay(
+          firstItem.unitPrice,
+          displayCurrency
+        );
 
       /* ===================================================
          INSERT ORDER
@@ -3270,42 +3650,63 @@ Deno.serve(
 
             language,
 
+            /* LEGACY PRODUCT DATA */
+
             product_id:
-              product.id,
+              firstItem
+                .product
+                .id,
 
             variant_id:
-              variant
+              firstItem
+                .variant
                 ?.id ??
               null,
 
             product_name:
-              productName,
+              legacyProductName,
 
-            storage,
+            storage:
+              validatedItems.length ===
+                1
+                ? firstItem.storage
+                : null,
 
-            color,
+            color:
+              validatedItems.length ===
+                1
+                ? firstItem.color
+                : null,
 
-            condition,
+            condition:
+              firstItem.condition,
 
             refurbished_grade:
-              condition ===
-                "refurbished"
-                ? refurbishedGrade
+              validatedItems.length ===
+                  1 &&
+                firstItem.condition ===
+                  "refurbished"
+                ? firstItem.refurbishedGrade
                 : null,
 
             battery_grade:
-              condition ===
-                "refurbished"
-                ? batteryGrade
+              validatedItems.length ===
+                  1 &&
+                firstItem.condition ===
+                  "refurbished"
+                ? firstItem.batteryGrade
                 : null,
 
             battery_upgrade_amount:
-              batteryUpgradeAmount,
+              totalBatteryUpgradeAmount,
 
-            quantity,
+            quantity:
+              totalQuantity,
 
             unit_price:
-              unitPrice,
+              firstItem.unitPrice,
+
+            /* ORDER TOTALS */
 
             subtotal:
               subtotalAmount,
@@ -3335,7 +3736,7 @@ Deno.serve(
               displayCurrency,
 
             display_unit_price:
-              displayUnitPrice,
+              legacyDisplayUnitPrice,
 
             display_total_amount:
               displayTotalAmount,
@@ -3379,6 +3780,236 @@ Deno.serve(
       }
 
       /* ===================================================
+         INSERT ORDER ITEMS
+      =================================================== */
+
+      const orderItemsRows =
+        validatedItems.map(
+          (
+            item
+          ) => ({
+            order_id:
+              order.id,
+
+            product_id:
+              item
+                .product
+                .id,
+
+            variant_id:
+              item
+                .variant
+                ?.id ??
+              null,
+
+            product_name:
+              item
+                .productName,
+
+            variant_storage:
+              item
+                .storage,
+
+            variant_color:
+              item
+                .color,
+
+            condition:
+              item
+                .condition,
+
+            refurbished_grade:
+              item
+                .condition ===
+                "refurbished"
+                ? item
+                    .refurbishedGrade
+                : null,
+
+            battery_grade:
+              item
+                .condition ===
+                "refurbished"
+                ? item
+                    .batteryGrade
+                : null,
+
+            quantity:
+              item
+                .quantity,
+
+            base_unit_price:
+              item
+                .baseUnitPrice,
+
+            battery_upgrade_amount:
+              item
+                .batteryUpgradeAmount,
+
+            unit_price:
+              item
+                .unitPrice,
+
+            line_subtotal:
+              item
+                .lineSubtotal,
+          })
+        );
+
+      const {
+        data:
+          insertedOrderItems,
+
+        error:
+          orderItemsError,
+      } =
+        await supabase
+          .from(
+            "order_items"
+          )
+          .insert(
+            orderItemsRows
+          )
+          .select();
+
+      if (
+        orderItemsError
+      ) {
+        console.error(
+          "Order items insert error:",
+          orderItemsError
+        );
+
+        /*
+         * Bank payment has not happened yet.
+         * Remove the incomplete parent order.
+         */
+        const {
+          error:
+            cleanupError,
+        } =
+          await supabase
+            .from(
+              "orders"
+            )
+            .delete()
+            .eq(
+              "id",
+              order.id
+            );
+
+        if (
+          cleanupError
+        ) {
+          console.error(
+            "Incomplete order cleanup failed:",
+            cleanupError
+          );
+        }
+
+        return serverError(
+          "ORDER_ITEMS_CREATE_FAILED",
+          `Could not create order items: ${orderItemsError.message}`
+        );
+      }
+
+      /* ===================================================
+         RESPONSE ITEMS
+      =================================================== */
+
+      const responseItems =
+        validatedItems.map(
+          (
+            item,
+            index
+          ) => ({
+            id:
+              insertedOrderItems
+                ?.[index]
+                ?.id ??
+              undefined,
+
+            order_id:
+              order.id,
+
+            product_id:
+              item
+                .product
+                .id,
+
+            variant_id:
+              item
+                .variant
+                ?.id ??
+              null,
+
+            product_name:
+              item
+                .productName,
+
+            variant_storage:
+              item
+                .storage,
+
+            variant_color:
+              item
+                .color,
+
+            storage:
+              item
+                .storage,
+
+            color:
+              item
+                .color,
+
+            condition:
+              item
+                .condition,
+
+            refurbished_grade:
+              item
+                .refurbishedGrade,
+
+            battery_grade:
+              item
+                .batteryGrade,
+
+            quantity:
+              item
+                .quantity,
+
+            base_unit_price:
+              item
+                .baseUnitPrice,
+
+            battery_upgrade_amount:
+              item
+                .batteryUpgradeAmount,
+
+            unit_price:
+              item
+                .unitPrice,
+
+            line_subtotal:
+              item
+                .lineSubtotal,
+
+            display_unit_price:
+              convertEurForDisplay(
+                item.unitPrice,
+                displayCurrency
+              ),
+
+            display_line_subtotal:
+              convertEurForDisplay(
+                item.lineSubtotal,
+                displayCurrency
+              ),
+          })
+        );
+
+      /* ===================================================
          EMAIL
       =================================================== */
 
@@ -3393,76 +4024,88 @@ Deno.serve(
       if (
         customerEmail
       ) {
-        try {
-          const resendResult =
-            await sendOrderEmail({
-              resendApiKey,
-              fromEmail,
-
-              customerEmail,
-              customerName,
-
-              customerCountry,
-              customerStateRegion,
-              customerCity,
-              customerStreet,
-              customerHouseNumber,
-              customerAddressLine2,
-              customerPostalCode,
-
-              orderNumber,
-
-              productName,
-              storage,
-              color,
-              condition,
-
-              refurbishedGrade,
-              batteryGrade,
-              batteryUpgradeAmount,
-
-              quantity,
-
-              baseUnitPrice,
-              unitPrice,
-              subtotalAmount,
-              shippingAmount,
-              totalAmount,
-
-              displayCurrency,
-              displayUnitPrice,
-              displaySubtotalAmount,
-              displayShippingAmount,
-              displayTotalAmount,
-              exchangeRate,
-
-              paymentReference,
-
-              bank,
-
-              language,
-            });
-
-          console.log(
-            "Resend success:",
-            resendResult
-          );
-
-          emailSent =
-            true;
-        } catch (
-          emailError
+        if (
+          !resendApiKey ||
+          !fromEmail
         ) {
-          console.error(
-            "Order email error:",
-            emailError
-          );
-
           warning =
-            emailError instanceof
-              Error
-              ? `Order created, but email failed: ${emailError.message}`
-              : "Order created, but the confirmation email could not be sent.";
+            "Order created, but email configuration is missing.";
+
+          console.error(
+            "Email configuration missing:",
+            {
+              resendApiKey:
+                Boolean(
+                  resendApiKey
+                ),
+
+              fromEmail:
+                Boolean(
+                  fromEmail
+                ),
+            }
+          );
+        } else {
+          try {
+            const resendResult =
+              await sendOrderEmail({
+                resendApiKey,
+                fromEmail,
+
+                customerEmail,
+                customerName,
+
+                customerCountry,
+                customerStateRegion,
+                customerCity,
+                customerStreet,
+                customerHouseNumber,
+                customerAddressLine2,
+                customerPostalCode,
+
+                orderNumber,
+
+                items:
+                  validatedItems,
+
+                subtotalAmount,
+                shippingAmount,
+                totalAmount,
+
+                displayCurrency,
+                displaySubtotalAmount,
+                displayShippingAmount,
+                displayTotalAmount,
+                exchangeRate,
+
+                paymentReference,
+
+                bank,
+
+                language,
+              });
+
+            console.log(
+              "Resend success:",
+              resendResult
+            );
+
+            emailSent =
+              true;
+          } catch (
+            emailError
+          ) {
+            console.error(
+              "Order email error:",
+              emailError
+            );
+
+            warning =
+              emailError instanceof
+                Error
+                ? `Order created, but email failed: ${emailError.message}`
+                : "Order created, but the confirmation email could not be sent.";
+          }
         }
       } else {
         console.log(
@@ -3491,20 +4134,15 @@ Deno.serve(
         payment_reference:
           paymentReference,
 
+        items:
+          responseItems,
+
         pricing: {
           currency:
             SETTLEMENT_CURRENCY,
 
-          base_unit_price:
-            baseUnitPrice,
-
-          battery_upgrade_amount:
-            batteryUpgradeAmount,
-
-          unit_price:
-            unitPrice,
-
-          quantity,
+          item_subtotal:
+            subtotalAmount,
 
           subtotal_amount:
             subtotalAmount,
@@ -3515,13 +4153,40 @@ Deno.serve(
           total_amount:
             totalAmount,
 
+          quantity:
+            totalQuantity,
+
+          total_quantity:
+            totalQuantity,
+
+          item_count:
+            validatedItems.length,
+
+          /*
+           * Legacy compatibility.
+           * These refer to the first order line.
+           */
+          base_unit_price:
+            firstItem
+              .baseUnitPrice,
+
+          battery_upgrade_amount:
+            totalBatteryUpgradeAmount,
+
+          unit_price:
+            firstItem
+              .unitPrice,
+
           display_currency:
             displayCurrency,
 
           display_unit_price:
-            displayUnitPrice,
+            legacyDisplayUnitPrice,
 
           display_subtotal_amount:
+            displaySubtotalAmount,
+
+          display_subtotal:
             displaySubtotalAmount,
 
           display_shipping_amount:
@@ -3532,6 +4197,9 @@ Deno.serve(
 
           exchange_rate:
             exchangeRate,
+
+          items:
+            responseItems,
         },
 
         shipping: {
@@ -3546,54 +4214,12 @@ Deno.serve(
 
           currency:
             SETTLEMENT_CURRENCY,
-        },
 
-        product: {
-          id:
-            product.id,
+          display_amount:
+            displayShippingAmount,
 
-          name:
-            product.name,
-
-          slug:
-            product.slug,
-
-          condition,
-
-          variant_id:
-            variant
-              ?.id ??
-            null,
-
-          storage:
-            variant
-              ?.storage ??
-            null,
-
-          color:
-            variant
-              ?.color ??
-            null,
-
-          sku:
-            variant
-              ?.sku ??
-            null,
-
-          refurbished_grade:
-            condition ===
-              "refurbished"
-              ? refurbishedGrade
-              : null,
-
-          battery_grade:
-            condition ===
-              "refurbished"
-              ? batteryGrade
-              : null,
-
-          battery_upgrade_amount:
-            batteryUpgradeAmount,
+          display_currency:
+            displayCurrency,
         },
 
         payment: {

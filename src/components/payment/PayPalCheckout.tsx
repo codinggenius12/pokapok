@@ -5,38 +5,18 @@ import {
 } from "react-native";
 
 import type {
-    PayPalBatteryGrade,
-    PayPalCondition,
+    CreatePayPalOrderItemInput,
     PayPalDisplayCurrency,
     PayPalLanguage,
-    PayPalRefurbishedGrade,
 } from "../../services/paypalService";
 
 type Props = {
-  /* PRODUCT */
+  /* =======================================================
+     PRODUCTS
+  ======================================================= */
 
-  productId:
-    string;
-
-  variantId?:
-    | string
-    | null;
-
-  condition:
-    PayPalCondition;
-
-  quantity:
-    number;
-
-  /* REFURBISHED CONFIG */
-
-  refurbishedGrade?:
-    | PayPalRefurbishedGrade
-    | null;
-
-  batteryGrade?:
-    | PayPalBatteryGrade
-    | null;
+  items:
+    CreatePayPalOrderItemInput[];
 
   /* CUSTOMER */
 
@@ -44,7 +24,8 @@ type Props = {
     string;
 
   customerEmail?:
-    string;
+    | string
+    | null;
 
   customerWhatsapp:
     string;
@@ -58,24 +39,30 @@ type Props = {
     string;
 
   city?:
-    string;
+    | string
+    | null;
 
   street?:
-    string;
+    | string
+    | null;
 
   houseNumber?:
-    string;
+    | string
+    | null;
 
   addressLine2?:
-    string;
+    | string
+    | null;
 
   postalCode?:
-    string;
+    | string
+    | null;
 
   /* ORDER */
 
   notes?:
-    string;
+    | string
+    | null;
 
   language:
     PayPalLanguage;

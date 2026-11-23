@@ -8,6 +8,13 @@ type SellCondition =
   | "new"
   | "refurbished";
 
+  type SupabaseServerClient = {
+  from: (
+    table:
+      string
+  ) => unknown;
+};
+
 type RefurbishedGrade =
   | "correct"
   | "good"
@@ -26,8 +33,9 @@ type DisplayCurrency =
   | "CVE"
   | "EUR";
 
-type RequestBody = {
-  productId?: string;
+type RequestItem = {
+  productId?:
+    string;
 
   variantId?:
     | string
@@ -39,8 +47,6 @@ type RequestBody = {
   quantity?:
     number;
 
-  /* REFURBISHED CONFIG */
-
   refurbishedGrade?:
     | RefurbishedGrade
     | null;
@@ -48,6 +54,11 @@ type RequestBody = {
   batteryGrade?:
     | BatteryGrade
     | null;
+};
+
+type RequestBody = {
+  items?:
+    RequestItem[];
 
   /* CUSTOMER */
 
@@ -55,7 +66,7 @@ type RequestBody = {
     string;
 
   customerEmail?:
-    string
+    | string
     | null;
 
   customerWhatsapp?:
@@ -70,29 +81,29 @@ type RequestBody = {
     string;
 
   city?:
-    string
+    | string
     | null;
 
   street?:
-    string
+    | string
     | null;
 
   houseNumber?:
-    string
+    | string
     | null;
 
   addressLine2?:
-    string
+    | string
     | null;
 
   postalCode?:
-    string
+    | string
     | null;
 
   /* ORDER */
 
   notes?:
-    string
+    | string
     | null;
 
   language?:
@@ -233,6 +244,69 @@ type CreatedOrderRow = {
     string;
 };
 
+type ValidatedOrderItem = {
+  product:
+    ProductRow;
+
+  variant:
+    | VariantRow
+    | null;
+
+  productId:
+    string;
+
+  variantId:
+    | string
+    | null;
+
+  productName:
+    string;
+
+  storage:
+    | string
+    | null;
+
+  color:
+    | string
+    | null;
+
+  sku:
+    | string
+    | null;
+
+  condition:
+    SellCondition;
+
+  refurbishedGrade:
+    | RefurbishedGrade
+    | null;
+
+  batteryGrade:
+    | BatteryGrade
+    | null;
+
+  quantity:
+    number;
+
+  baseUnitPrice:
+    number;
+
+  batteryUpgradeAmount:
+    number;
+
+  unitPrice:
+    number;
+
+  lineSubtotal:
+    number;
+
+  displayUnitPrice:
+    number;
+
+  displayLineSubtotal:
+    number;
+};
+
 type PayPalOrderResponse = {
   id?:
     string;
@@ -267,6 +341,19 @@ type DestinationValidationResult =
     };
 
 /* =========================================================
+   LIMITS
+========================================================= */
+
+const MAX_ORDER_LINES =
+  20;
+
+const MAX_QUANTITY_PER_LINE =
+  10;
+
+const MAX_TOTAL_QUANTITY =
+  50;
+
+/* =========================================================
    CURRENCY
 ========================================================= */
 
@@ -280,15 +367,6 @@ const SETTLEMENT_CURRENCY =
    REFURBISHED
 ========================================================= */
 
-/*
- * This is intentionally defined on the server.
- *
- * The frontend only sends:
- *
- * batteryGrade = "new"
- *
- * It never tells the server what the surcharge costs.
- */
 const NEW_BATTERY_SURCHARGE =
   89;
 
@@ -698,7 +776,9 @@ function validateDestination(
   stateRegion:
     string
 ): DestinationValidationResult {
-  if (!country) {
+  if (
+    !country
+  ) {
     return {
       valid:
         false,
@@ -711,7 +791,9 @@ function validateDestination(
     };
   }
 
-  if (!stateRegion) {
+  if (
+    !stateRegion
+  ) {
     return {
       valid:
         false,
@@ -803,15 +885,6 @@ function productCanBeSoldRefurbished(
    REFURBISHED GRADE PRICE
 ========================================================= */
 
-/*
- * Cosmetic-grade prices are authoritative.
- *
- * There is deliberately NO multiplier and NO locally
- * invented grade price.
- *
- * The exact Supabase columns are selected depending on
- * the requested grade.
- */
 function getRefurbishedGradePrice(
   variant:
     VariantRow,
@@ -904,7 +977,7 @@ function getNewVariantPrice(
 }
 
 /* =========================================================
-   REFURBISHED LABELS
+   LABELS
 ========================================================= */
 
 function getRefurbishedGradeLabel(
@@ -1074,66 +1147,50 @@ async function getPayPalAccessToken() {
 }
 
 /* =========================================================
-   PAYPAL DESCRIPTION
+   PAYPAL ITEM DESCRIPTION
 ========================================================= */
 
 function buildItemName(
-  product:
-    ProductRow,
-
-  variant:
-    | VariantRow
-    | null
+  item:
+    ValidatedOrderItem
 ) {
   const storage =
-    variant
-      ?.storage
+    item.storage
       ?.trim();
 
-  if (storage) {
-    return `${product.name} ${storage}`.slice(
+  if (
+    storage
+  ) {
+    return `${item.productName} ${storage}`.slice(
       0,
       127
     );
   }
 
-  return product.name.slice(
+  return item.productName.slice(
     0,
     127
   );
 }
 
 function buildItemDescription(
-  variant:
-    | VariantRow
-    | null,
-
-  condition:
-    SellCondition,
-
-  refurbishedGrade:
-    | RefurbishedGrade
-    | null,
-
-  batteryGrade:
-    | BatteryGrade
-    | null
+  item:
+    ValidatedOrderItem
 ) {
   const pieces:
     string[] = [];
 
   if (
-    variant
-      ?.color
+    item.color
       ?.trim()
   ) {
     pieces.push(
-      variant.color.trim()
+      item.color.trim()
     );
   }
 
   if (
-    condition ===
+    item.condition ===
       "refurbished"
   ) {
     pieces.push(
@@ -1141,21 +1198,21 @@ function buildItemDescription(
     );
 
     if (
-      refurbishedGrade
+      item.refurbishedGrade
     ) {
       pieces.push(
         getRefurbishedGradeLabel(
-          refurbishedGrade
+          item.refurbishedGrade
         )
       );
     }
 
     if (
-      batteryGrade
+      item.batteryGrade
     ) {
       pieces.push(
         getBatteryGradeLabel(
-          batteryGrade
+          item.batteryGrade
         )
       );
     }
@@ -1173,6 +1230,494 @@ function buildItemDescription(
       0,
       127
     );
+}
+
+/* =========================================================
+   VALIDATE + PRICE ONE ITEM
+========================================================= */
+
+
+
+async function validateOrderItem(
+  supabase:
+    SupabaseServerClient,
+
+  rawItem:
+    RequestItem,
+
+  displayCurrency:
+    DisplayCurrency
+): Promise<
+  ValidatedOrderItem
+> {
+
+  const productId =
+    cleanString(
+      rawItem.productId
+    );
+
+  const variantId =
+    cleanString(
+      rawItem.variantId
+    ) ||
+    null;
+
+  const condition =
+    rawItem.condition;
+
+  const quantity =
+    Number(
+      rawItem.quantity ??
+        1
+    );
+
+  const refurbishedGrade =
+    isValidRefurbishedGrade(
+      rawItem.refurbishedGrade
+    )
+      ? rawItem.refurbishedGrade
+      : null;
+
+  const batteryGrade =
+    isValidBatteryGrade(
+      rawItem.batteryGrade
+    )
+      ? rawItem.batteryGrade
+      : null;
+
+  /* =======================================================
+     BASIC VALIDATION
+  ======================================================= */
+
+  if (
+    !productId
+  ) {
+    throw new Error(
+      "PRODUCT_REQUIRED"
+    );
+  }
+
+  if (
+    condition !==
+      "new" &&
+    condition !==
+      "refurbished"
+  ) {
+    throw new Error(
+      "INVALID_CONDITION"
+    );
+  }
+
+  if (
+    !Number.isInteger(
+      quantity
+    ) ||
+    quantity < 1 ||
+    quantity >
+      MAX_QUANTITY_PER_LINE
+  ) {
+    throw new Error(
+      "INVALID_QUANTITY"
+    );
+  }
+
+  if (
+    condition ===
+      "refurbished" &&
+    !variantId
+  ) {
+    throw new Error(
+      "REFURBISHED_VARIANT_REQUIRED"
+    );
+  }
+
+  if (
+    condition ===
+      "refurbished" &&
+    !refurbishedGrade
+  ) {
+    throw new Error(
+      "REFURBISHED_GRADE_REQUIRED"
+    );
+  }
+
+  if (
+    condition ===
+      "refurbished" &&
+    !batteryGrade
+  ) {
+    throw new Error(
+      "BATTERY_GRADE_REQUIRED"
+    );
+  }
+
+  if (
+    condition ===
+      "new" &&
+    (
+      rawItem.refurbishedGrade !=
+        null ||
+      rawItem.batteryGrade !=
+        null
+    )
+  ) {
+    throw new Error(
+      "INVALID_NEW_PRODUCT_CONFIGURATION"
+    );
+  }
+
+  /* =======================================================
+     PRODUCT
+  ======================================================= */
+
+  const {
+    data:
+      productData,
+
+    error:
+      productError,
+  } =
+    await supabase
+      .from(
+        "products"
+      )
+      .select(
+        `
+        id,
+        name,
+        slug,
+        condition,
+        refurbished_enabled,
+        sale_price,
+        promotional_price,
+        available,
+        published
+        `
+      )
+      .eq(
+        "id",
+        productId
+      )
+      .maybeSingle();
+
+  if (
+    productError
+  ) {
+    console.error(
+      "Product query error:",
+      productError
+    );
+
+    throw new Error(
+      "PRODUCT_QUERY_FAILED"
+    );
+  }
+
+  const product =
+    productData as
+      | ProductRow
+      | null;
+
+  if (
+    !product
+  ) {
+    throw new Error(
+      "PRODUCT_NOT_FOUND"
+    );
+  }
+
+  if (
+    !product.published ||
+    !product.available
+  ) {
+    throw new Error(
+      "PRODUCT_UNAVAILABLE"
+    );
+  }
+
+  if (
+    condition ===
+      "new" &&
+    !productCanBeSoldNew(
+      product
+    )
+  ) {
+    throw new Error(
+      "NEW_NOT_AVAILABLE"
+    );
+  }
+
+  if (
+    condition ===
+      "refurbished" &&
+    !productCanBeSoldRefurbished(
+      product
+    )
+  ) {
+    throw new Error(
+      "REFURBISHED_NOT_AVAILABLE"
+    );
+  }
+
+  /* =======================================================
+     VARIANT
+  ======================================================= */
+
+  let variant:
+    | VariantRow
+    | null =
+    null;
+
+  if (
+    variantId
+  ) {
+    const {
+      data:
+        variantData,
+
+      error:
+        variantError,
+    } =
+      await supabase
+        .from(
+          "product_variants"
+        )
+        .select(
+          `
+          id,
+          product_id,
+          storage,
+          color,
+          sku,
+          available,
+
+          sale_price,
+          promotional_price,
+
+          refurbished_sale_price,
+          refurbished_promotional_price,
+
+          refurbished_correct_sale_price,
+          refurbished_correct_promotional_price,
+
+          refurbished_good_sale_price,
+          refurbished_good_promotional_price,
+
+          refurbished_excellent_sale_price,
+          refurbished_excellent_promotional_price,
+
+          refurbished_premium_sale_price,
+          refurbished_premium_promotional_price
+          `
+        )
+        .eq(
+          "id",
+          variantId
+        )
+        .eq(
+          "product_id",
+          product.id
+        )
+        .maybeSingle();
+
+    if (
+      variantError
+    ) {
+      console.error(
+        "Variant query error:",
+        variantError
+      );
+
+      throw new Error(
+        "VARIANT_QUERY_FAILED"
+      );
+    }
+
+    variant =
+      variantData as
+        | VariantRow
+        | null;
+
+    if (
+      !variant
+    ) {
+      throw new Error(
+        "VARIANT_NOT_FOUND"
+      );
+    }
+
+    if (
+      !variant.available
+    ) {
+      throw new Error(
+        "VARIANT_UNAVAILABLE"
+      );
+    }
+  }
+
+  /* =======================================================
+     AUTHORITATIVE BASE PRICE
+  ======================================================= */
+
+  let baseUnitPrice:
+    number | null =
+    null;
+
+  if (
+    condition ===
+      "new"
+  ) {
+    baseUnitPrice =
+      variant
+        ? getNewVariantPrice(
+            product,
+            variant
+          )
+        : getNewProductPrice(
+            product
+          );
+  }
+
+  if (
+    condition ===
+      "refurbished"
+  ) {
+    if (
+      !variant ||
+      !refurbishedGrade
+    ) {
+      throw new Error(
+        "REFURBISHED_CONFIGURATION_REQUIRED"
+      );
+    }
+
+    baseUnitPrice =
+      getRefurbishedGradePrice(
+        variant,
+        refurbishedGrade
+      );
+  }
+
+  if (
+    baseUnitPrice ===
+      null ||
+    baseUnitPrice <=
+      0
+  ) {
+    throw new Error(
+      "PRICE_NOT_AVAILABLE"
+    );
+  }
+
+  const safeBaseUnitPrice =
+    roundMoney(
+      baseUnitPrice
+    );
+
+  /* =======================================================
+     BATTERY SURCHARGE
+  ======================================================= */
+
+  const batteryUpgradeAmount =
+    condition ===
+      "refurbished" &&
+    batteryGrade ===
+      "new"
+      ? NEW_BATTERY_SURCHARGE
+      : 0;
+
+  const safeUnitPrice =
+    roundMoney(
+      safeBaseUnitPrice +
+        batteryUpgradeAmount
+    );
+
+  const lineSubtotal =
+    roundMoney(
+      safeUnitPrice *
+        quantity
+    );
+
+  return {
+    product,
+
+    variant,
+
+    productId:
+      product.id,
+
+    variantId:
+      variant
+        ?.id ??
+      null,
+
+    productName:
+      cleanString(
+        product.name
+      ),
+
+    storage:
+      variant
+        ?.storage
+        ? cleanString(
+            variant.storage
+          )
+        : null,
+
+    color:
+      variant
+        ?.color
+        ? cleanString(
+            variant.color
+          )
+        : null,
+
+    sku:
+      variant
+        ?.sku
+        ? cleanString(
+            variant.sku
+          )
+        : null,
+
+    condition,
+
+    refurbishedGrade:
+      condition ===
+        "refurbished"
+        ? refurbishedGrade
+        : null,
+
+    batteryGrade:
+      condition ===
+        "refurbished"
+        ? batteryGrade
+        : null,
+
+    quantity,
+
+    baseUnitPrice:
+      safeBaseUnitPrice,
+
+    batteryUpgradeAmount,
+
+    unitPrice:
+      safeUnitPrice,
+
+    lineSubtotal,
+
+    displayUnitPrice:
+      convertEurForDisplay(
+        safeUnitPrice,
+        displayCurrency
+      ),
+
+    displayLineSubtotal:
+      convertEurForDisplay(
+        lineSubtotal,
+        displayCurrency
+      ),
+  };
 }
 
 /* =========================================================
@@ -1273,45 +1818,6 @@ Deno.serve(
         );
       }
 
-      const productId =
-        cleanString(
-          body.productId
-        );
-
-      const variantId =
-        cleanString(
-          body.variantId
-        ) ||
-        null;
-
-      const condition =
-        body.condition;
-
-      const quantity =
-        Number(
-          body.quantity ??
-            1
-        );
-
-      /*
-       * These are only selections.
-       *
-       * Their prices are determined below by this server.
-       */
-      const refurbishedGrade =
-        isValidRefurbishedGrade(
-          body.refurbishedGrade
-        )
-          ? body.refurbishedGrade
-          : null;
-
-      const batteryGrade =
-        isValidBatteryGrade(
-          body.batteryGrade
-        )
-          ? body.batteryGrade
-          : null;
-
       const customerName =
         cleanString(
           body.customerName
@@ -1382,97 +1888,8 @@ Deno.serve(
           : "CVE";
 
       /* ===================================================
-         BASIC VALIDATION
+         CUSTOMER VALIDATION
       =================================================== */
-
-      if (!productId) {
-        return badRequest(
-          "Product ID is required.",
-          "PRODUCT_REQUIRED"
-        );
-      }
-
-      if (
-        condition !==
-          "new" &&
-        condition !==
-          "refurbished"
-      ) {
-        return badRequest(
-          "A valid product condition is required.",
-          "INVALID_CONDITION"
-        );
-      }
-
-      if (
-        !Number.isInteger(
-          quantity
-        ) ||
-        quantity < 1 ||
-        quantity > 10
-      ) {
-        return badRequest(
-          "Quantity must be between 1 and 10.",
-          "INVALID_QUANTITY"
-        );
-      }
-
-      /* ===================================================
-         REFURBISHED VALIDATION
-      =================================================== */
-
-      if (
-        condition ===
-          "refurbished" &&
-        !variantId
-      ) {
-        return badRequest(
-          "A variant is required for refurbished products.",
-          "REFURBISHED_VARIANT_REQUIRED"
-        );
-      }
-
-      if (
-        condition ===
-          "refurbished" &&
-        !refurbishedGrade
-      ) {
-        return badRequest(
-          "A valid refurbished cosmetic grade is required.",
-          "REFURBISHED_GRADE_REQUIRED"
-        );
-      }
-
-      if (
-        condition ===
-          "refurbished" &&
-        !batteryGrade
-      ) {
-        return badRequest(
-          "A valid refurbished battery option is required.",
-          "BATTERY_GRADE_REQUIRED"
-        );
-      }
-
-      /*
-       * New products are not allowed to sneak in refurbished
-       * configuration values.
-       */
-      if (
-        condition ===
-          "new" &&
-        (
-          body.refurbishedGrade !=
-            null ||
-          body.batteryGrade !=
-            null
-        )
-      ) {
-        return badRequest(
-          "Refurbished configuration cannot be used for a new product.",
-          "INVALID_NEW_PRODUCT_CONFIGURATION"
-        );
-      }
 
       if (
         !customerName
@@ -1529,6 +1946,33 @@ Deno.serve(
       }
 
       /* ===================================================
+         ITEMS VALIDATION
+      =================================================== */
+
+      if (
+        !Array.isArray(
+          body.items
+        ) ||
+        body.items.length ===
+          0
+      ) {
+        return badRequest(
+          "At least one order item is required.",
+          "ITEMS_REQUIRED"
+        );
+      }
+
+      if (
+        body.items.length >
+        MAX_ORDER_LINES
+      ) {
+        return badRequest(
+          `A maximum of ${MAX_ORDER_LINES} order lines is allowed.`,
+          "TOO_MANY_ORDER_LINES"
+        );
+      }
+
+      /* ===================================================
          DESTINATION + SHIPPING
       =================================================== */
 
@@ -1554,312 +1998,114 @@ Deno.serve(
         );
 
       /* ===================================================
-         PRODUCT
+         VALIDATE + PRICE ALL ITEMS
       =================================================== */
 
-      const {
-        data:
-          productData,
+      const validatedItems:
+        ValidatedOrderItem[] =
+        [];
 
-        error:
-          productError,
-      } =
-        await supabase
-          .from(
-            "products"
-          )
-          .select(
-            `
-            id,
-            name,
-            slug,
-            condition,
-            refurbished_enabled,
-            sale_price,
-            promotional_price,
-            available,
-            published
-            `
-          )
-          .eq(
-            "id",
-            productId
-          )
-          .maybeSingle();
+      let totalQuantity =
+        0;
 
-      if (
-        productError
+      for (
+        let index = 0;
+        index <
+        body.items.length;
+        index += 1
       ) {
-        console.error(
-          "Product query error:",
-          productError
-        );
+        const rawItem =
+          body.items[
+            index
+          ];
 
-        return serverError(
-          "Could not read product.",
-          "PRODUCT_QUERY_FAILED"
-        );
-      }
+        try {
+          const validated =
+            await validateOrderItem(
+              supabase,
+              rawItem,
+              displayCurrency
+            );
 
-      const product =
-        productData as
-          | ProductRow
-          | null;
+          totalQuantity +=
+            validated.quantity;
 
-      if (!product) {
-        return badRequest(
-          "Product not found.",
-          "PRODUCT_NOT_FOUND"
-        );
-      }
+          if (
+            totalQuantity >
+            MAX_TOTAL_QUANTITY
+          ) {
+            return badRequest(
+              `A maximum total quantity of ${MAX_TOTAL_QUANTITY} items is allowed.`,
+              "TOTAL_QUANTITY_TOO_HIGH"
+            );
+          }
 
-      if (
-        !product.published ||
-        !product.available
-      ) {
-        return badRequest(
-          "This product is not currently available.",
-          "PRODUCT_UNAVAILABLE"
-        );
-      }
-
-      if (
-        condition ===
-          "new" &&
-        !productCanBeSoldNew(
-          product
-        )
-      ) {
-        return badRequest(
-          "This product is not available as new.",
-          "NEW_NOT_AVAILABLE"
-        );
-      }
-
-      if (
-        condition ===
-          "refurbished" &&
-        !productCanBeSoldRefurbished(
-          product
-        )
-      ) {
-        return badRequest(
-          "This product is not available as refurbished.",
-          "REFURBISHED_NOT_AVAILABLE"
-        );
-      }
-
-      /* ===================================================
-         VARIANT
-      =================================================== */
-
-      let variant:
-        | VariantRow
-        | null =
-        null;
-
-      if (
-        variantId
-      ) {
-        const {
-          data:
-            variantData,
-
-          error:
-            variantError,
-        } =
-          await supabase
-            .from(
-              "product_variants"
-            )
-            .select(
-              `
-              id,
-              product_id,
-              storage,
-              color,
-              sku,
-              available,
-
-              sale_price,
-              promotional_price,
-
-              refurbished_sale_price,
-              refurbished_promotional_price,
-
-              refurbished_correct_sale_price,
-              refurbished_correct_promotional_price,
-
-              refurbished_good_sale_price,
-              refurbished_good_promotional_price,
-
-              refurbished_excellent_sale_price,
-              refurbished_excellent_promotional_price,
-
-              refurbished_premium_sale_price,
-              refurbished_premium_promotional_price
-              `
-            )
-            .eq(
-              "id",
-              variantId
-            )
-            .eq(
-              "product_id",
-              product.id
-            )
-            .maybeSingle();
-
-        if (
-          variantError
+          validatedItems.push(
+            validated
+          );
+        } catch (
+          error
         ) {
+          const code =
+            error instanceof
+              Error
+              ? error.message
+              : "ITEM_VALIDATION_FAILED";
+
           console.error(
-            "Variant query error:",
-            variantError
+            "PayPal order item validation failed:",
+            {
+              index,
+              code,
+              rawItem,
+            }
           );
 
-          return serverError(
-            "Could not read product variant.",
-            "VARIANT_QUERY_FAILED"
-          );
-        }
-
-        variant =
-          variantData as
-            | VariantRow
-            | null;
-
-        if (!variant) {
           return badRequest(
-            "Product variant not found.",
-            "VARIANT_NOT_FOUND"
-          );
-        }
-
-        if (
-          !variant.available
-        ) {
-          return badRequest(
-            "This product variant is not currently available.",
-            "VARIANT_UNAVAILABLE"
+            `Order item ${index + 1} is invalid.`,
+            code
           );
         }
       }
 
       /* ===================================================
-         AUTHORITATIVE SERVER PRICE
+         TOTALS
       =================================================== */
-
-      let baseUnitPrice:
-        number | null =
-        null;
-
-      /*
-       * NEW
-       *
-       * Existing new-device pricing remains unchanged.
-       */
-      if (
-        condition ===
-          "new"
-      ) {
-        baseUnitPrice =
-          variant
-            ? getNewVariantPrice(
-                product,
-                variant
-              )
-            : getNewProductPrice(
-                product
-              );
-      }
-
-      /*
-       * REFURBISHED
-       *
-       * The server ignores any unitPrice from the browser.
-       *
-       * It reads the exact selected grade price directly
-       * from the matching Supabase product_variants row.
-       */
-      if (
-        condition ===
-          "refurbished"
-      ) {
-        if (
-          !variant ||
-          !refurbishedGrade
-        ) {
-          return badRequest(
-            "A valid variant and refurbished grade are required.",
-            "REFURBISHED_CONFIGURATION_REQUIRED"
-          );
-        }
-
-        baseUnitPrice =
-          getRefurbishedGradePrice(
-            variant,
-            refurbishedGrade
-          );
-      }
-
-      if (
-        baseUnitPrice ===
-          null ||
-        baseUnitPrice <= 0
-      ) {
-        return badRequest(
-          condition ===
-            "refurbished"
-            ? "No valid price is configured for this refurbished cosmetic grade."
-            : "No valid selling price is configured for this product.",
-          "PRICE_NOT_AVAILABLE"
-        );
-      }
-
-      const safeBaseUnitPrice =
-        roundMoney(
-          baseUnitPrice
-        );
-
-      /* ===================================================
-         AUTHORITATIVE BATTERY SURCHARGE
-      =================================================== */
-
-      const batteryUpgradeAmount =
-        condition ===
-          "refurbished" &&
-        batteryGrade ===
-          "new"
-          ? NEW_BATTERY_SURCHARGE
-          : 0;
-
-      /*
-       * This is the final per-device selling price.
-       *
-       * Example:
-       *
-       * Excellent Supabase price = €500
-       * New battery            = €89
-       *
-       * Final unit price       = €589
-       */
-      const safeUnitPrice =
-        roundMoney(
-          safeBaseUnitPrice +
-            batteryUpgradeAmount
-        );
 
       const itemSubtotal =
         roundMoney(
-          safeUnitPrice *
-            quantity
+          validatedItems.reduce(
+            (
+              total,
+              item
+            ) =>
+              total +
+              item.lineSubtotal,
+            0
+          )
         );
 
       const finalTotal =
         roundMoney(
           itemSubtotal +
             shippingPrice
+        );
+
+      const totalBatteryUpgradeAmount =
+        roundMoney(
+          validatedItems.reduce(
+            (
+              total,
+              item
+            ) =>
+              total +
+              (
+                item
+                  .batteryUpgradeAmount *
+                item.quantity
+              ),
+            0
+          )
         );
 
       /* ===================================================
@@ -1871,12 +2117,6 @@ Deno.serve(
           "CVE"
           ? EUR_TO_CVE
           : 1;
-
-      const displayUnitPrice =
-        convertEurForDisplay(
-          safeUnitPrice,
-          displayCurrency
-        );
 
       const displaySubtotal =
         convertEurForDisplay(
@@ -1896,79 +2136,74 @@ Deno.serve(
           displayCurrency
         );
 
-      const productName =
-        cleanString(
-          product.name
-        );
-
-      const storage =
-        variant
-          ?.storage
-          ? cleanString(
-              variant.storage
-            )
-          : null;
-
-      const color =
-        variant
-          ?.color
-          ? cleanString(
-              variant.color
-            )
-          : null;
-
       /* ===================================================
-         SERVER PRICE LOG
+         LEGACY PARENT VALUES
+
+         orders still contains single-product columns.
+         Keep first item there for dashboard compatibility.
       =================================================== */
 
+      const firstItem =
+        validatedItems[0];
+
+      const parentProductName =
+        validatedItems.length ===
+          1
+          ? firstItem.productName
+          : `${firstItem.productName} + ${validatedItems.length - 1} more`;
+
+      const parentStorage =
+        validatedItems.length ===
+          1
+          ? firstItem.storage
+          : null;
+
+      const parentColor =
+        validatedItems.length ===
+          1
+          ? firstItem.color
+          : null;
+
+      const parentRefurbishedGrade =
+        validatedItems.length ===
+          1
+          ? firstItem
+              .refurbishedGrade
+          : null;
+
+      const parentBatteryGrade =
+        validatedItems.length ===
+          1
+          ? firstItem
+              .batteryGrade
+          : null;
+
       console.log(
-        "Authoritative PayPal pricing:",
+        "Authoritative multi-item PayPal pricing:",
         {
-          productId:
-            product.id,
+          itemCount:
+            validatedItems.length,
 
-          variantId:
-            variant
-              ?.id ??
-            null,
+          totalQuantity,
 
-          condition,
-
-          refurbishedGrade:
-            condition ===
-              "refurbished"
-              ? refurbishedGrade
-              : null,
-
-          batteryGrade:
-            condition ===
-              "refurbished"
-              ? batteryGrade
-              : null,
-
-          baseUnitPrice:
-            safeBaseUnitPrice,
-
-          batteryUpgradeAmount,
-
-          finalUnitPrice:
-            safeUnitPrice,
-
-          quantity,
-
-          subtotal:
-            itemSubtotal,
+          itemSubtotal,
 
           shipping:
             shippingPrice,
 
           total:
             finalTotal,
+
+          displayCurrency,
+
+          displayTotalAmount,
+
+          exchangeRate,
         }
       );
 
       /* ===================================================
-         POKAPOK IDENTIFIERS
+         IDENTIFIERS
       =================================================== */
 
       const orderNumber =
@@ -1978,7 +2213,7 @@ Deno.serve(
         createPaymentReference();
 
       /* ===================================================
-         CREATE PENDING POKAPOK ORDER
+         CREATE PENDING PARENT ORDER
       =================================================== */
 
       const {
@@ -2041,49 +2276,47 @@ Deno.serve(
 
             language,
 
+            /*
+             * Legacy parent product columns.
+             */
             product_id:
-              product.id,
+              firstItem.productId,
 
             variant_id:
-              variant
-                ?.id ??
-              null,
+              firstItem.variantId,
 
             product_name:
-              productName,
+              parentProductName,
 
-            storage,
+            storage:
+              parentStorage,
 
-            color,
+            color:
+              parentColor,
 
-            condition,
+            condition:
+              firstItem.condition,
 
-            quantity,
+            quantity:
+              totalQuantity,
 
-            /*
-             * NEW REFURBISHED CONFIGURATION
-             */
             refurbished_grade:
-              condition ===
-                "refurbished"
-                ? refurbishedGrade
-                : null,
+              parentRefurbishedGrade,
 
             battery_grade:
-              condition ===
-                "refurbished"
-                ? batteryGrade
-                : null,
-
-            battery_upgrade_amount:
-              batteryUpgradeAmount,
+              parentBatteryGrade,
 
             /*
-             * unit_price is the FINAL unit price including
-             * the battery upgrade when selected.
+             * Aggregate battery surcharge across the order.
+             */
+            battery_upgrade_amount:
+              totalBatteryUpgradeAmount,
+
+            /*
+             * Legacy first-line unit price.
              */
             unit_price:
-              safeUnitPrice,
+              firstItem.unitPrice,
 
             subtotal:
               itemSubtotal,
@@ -2112,8 +2345,12 @@ Deno.serve(
             display_currency:
               displayCurrency,
 
+            /*
+             * Legacy display unit price = first line.
+             */
             display_unit_price:
-              displayUnitPrice,
+              firstItem
+                .displayUnitPrice,
 
             display_total_amount:
               displayTotalAmount,
@@ -2177,14 +2414,125 @@ Deno.serve(
         orderData as
           CreatedOrderRow;
 
+      /* ===================================================
+         CREATE ORDER ITEMS
+      =================================================== */
+
+      const orderItemRows =
+        validatedItems.map(
+          (
+            item
+          ) => ({
+            order_id:
+              pendingOrder.id,
+
+            product_id:
+              item.productId,
+
+            variant_id:
+              item.variantId,
+
+            product_name:
+              item.productName,
+
+            variant_storage:
+              item.storage,
+
+            variant_color:
+              item.color,
+
+            condition:
+              item.condition,
+
+            refurbished_grade:
+              item.refurbishedGrade,
+
+            battery_grade:
+              item.batteryGrade,
+
+            quantity:
+              item.quantity,
+
+            base_unit_price:
+              item.baseUnitPrice,
+
+            battery_upgrade_amount:
+              item.batteryUpgradeAmount,
+
+            unit_price:
+              item.unitPrice,
+
+            line_subtotal:
+              item.lineSubtotal,
+          })
+        );
+
+      const {
+        error:
+          orderItemsInsertError,
+      } =
+        await supabase
+          .from(
+            "order_items"
+          )
+          .insert(
+            orderItemRows
+          );
+
+      if (
+        orderItemsInsertError
+      ) {
+        console.error(
+          "PayPal order_items insert error:",
+          orderItemsInsertError
+        );
+
+        /*
+         * Roll back parent because the order would otherwise
+         * be incomplete.
+         */
+        const {
+          error:
+            rollbackError,
+        } =
+          await supabase
+            .from(
+              "orders"
+            )
+            .delete()
+            .eq(
+              "id",
+              pendingOrder.id
+            );
+
+        if (
+          rollbackError
+        ) {
+          console.error(
+            "Could not roll back incomplete PayPal parent order:",
+            rollbackError
+          );
+        }
+
+        return serverError(
+          "Could not save the order items.",
+          "ORDER_ITEMS_CREATE_FAILED"
+        );
+      }
+
       console.log(
-        "Pending POKAPOK order created:",
+        "Pending multi-item POKAPOK PayPal order created:",
         {
           id:
             pendingOrder.id,
 
           orderNumber:
             pendingOrder.order_number,
+
+          itemCount:
+            validatedItems.length,
+
+          totalQuantity,
 
           total:
             finalTotal,
@@ -2224,13 +2572,8 @@ Deno.serve(
       }
 
       /* ===================================================
-         PAYPAL DISPLAY VALUES
+         PAYPAL AMOUNTS
       =================================================== */
-
-      const unitPriceText =
-        formatMoney(
-          safeUnitPrice
-        );
 
       const itemSubtotalText =
         formatMoney(
@@ -2247,32 +2590,72 @@ Deno.serve(
           finalTotal
         );
 
-      const itemName =
-        buildItemName(
-          product,
-          variant
+      /* ===================================================
+         PAYPAL ITEMS
+      =================================================== */
+
+      const paypalItems =
+        validatedItems.map(
+          (
+            item
+          ) => ({
+            name:
+              buildItemName(
+                item
+              ),
+
+            description:
+              buildItemDescription(
+                item
+              ),
+
+            sku:
+              (
+                item.sku ||
+                item.product.slug
+              ).slice(
+                0,
+                127
+              ),
+
+            quantity:
+              String(
+                item.quantity
+              ),
+
+            category:
+              "PHYSICAL_GOODS",
+
+            unit_amount: {
+              currency_code:
+                SETTLEMENT_CURRENCY,
+
+              value:
+                formatMoney(
+                  item.unitPrice
+                ),
+            },
+          })
         );
 
-      const itemDescription =
-        buildItemDescription(
-          variant,
-          condition,
-          condition ===
-              "refurbished"
-            ? refurbishedGrade
-            : null,
-          condition ===
-              "refurbished"
-            ? batteryGrade
-            : null
-        );
+      /* ===================================================
+         PAYPAL DESCRIPTION
+      =================================================== */
+
+      const purchaseDescription =
+        validatedItems.length ===
+          1
+          ? `POKAPOK · ${buildItemName(
+              firstItem
+            )}`
+          : `POKAPOK · ${validatedItems.length} order items`;
 
       /* ===================================================
          CREATE PAYPAL ORDER
       =================================================== */
 
       console.log(
-        "Creating PayPal order for:",
+        "Creating multi-item PayPal order for:",
         pendingOrder.id
       );
 
@@ -2320,7 +2703,7 @@ Deno.serve(
                         orderNumber,
 
                       description:
-                        `POKAPOK · ${itemName}`.slice(
+                        purchaseDescription.slice(
                           0,
                           127
                         ),
@@ -2351,46 +2734,8 @@ Deno.serve(
                         },
                       },
 
-                      items: [
-                        {
-                          name:
-                            itemName,
-
-                          description:
-                            itemDescription,
-
-                          sku:
-                            (
-                              variant
-                                ?.sku ||
-                              product.slug
-                            ).slice(
-                              0,
-                              127
-                            ),
-
-                          quantity:
-                            String(
-                              quantity
-                            ),
-
-                          category:
-                            "PHYSICAL_GOODS",
-
-                          /*
-                           * PayPal receives the server-calculated
-                           * final unit price, including +€89 when
-                           * the new-battery option was selected.
-                           */
-                          unit_amount: {
-                            currency_code:
-                              SETTLEMENT_CURRENCY,
-
-                            value:
-                              unitPriceText,
-                          },
-                        },
-                      ],
+                      items:
+                        paypalItems,
                     },
                   ],
                 }),
@@ -2432,7 +2777,8 @@ Deno.serve(
           .text();
 
       let paypalData:
-        PayPalOrderResponse = {};
+        PayPalOrderResponse =
+        {};
 
       try {
         paypalData =
@@ -2596,7 +2942,7 @@ Deno.serve(
       }
 
       console.log(
-        "PayPal order linked:",
+        "Multi-item PayPal order linked:",
         {
           pokapokOrderId:
             pendingOrder.id,
@@ -2607,26 +2953,83 @@ Deno.serve(
 
           paypalStatus,
 
-          refurbishedGrade:
-            condition ===
-              "refurbished"
-              ? refurbishedGrade
-              : null,
+          itemCount:
+            validatedItems.length,
 
-          batteryGrade:
-            condition ===
-              "refurbished"
-              ? batteryGrade
-              : null,
+          totalQuantity,
 
-          batteryUpgradeAmount,
+          itemSubtotal,
 
-          finalUnitPrice:
-            safeUnitPrice,
+          shippingPrice,
 
           finalTotal,
+
+          displayCurrency,
+
+          displayTotalAmount,
+
+          exchangeRate,
         }
       );
+
+      /* ===================================================
+         RESPONSE ITEMS
+      =================================================== */
+
+      const responseItems =
+        validatedItems.map(
+          (
+            item
+          ) => ({
+            product_id:
+              item.productId,
+
+            variant_id:
+              item.variantId,
+
+            product_name:
+              item.productName,
+
+            storage:
+              item.storage,
+
+            color:
+              item.color,
+
+            sku:
+              item.sku,
+
+            condition:
+              item.condition,
+
+            refurbished_grade:
+              item.refurbishedGrade,
+
+            battery_grade:
+              item.batteryGrade,
+
+            battery_upgrade_amount:
+              item.batteryUpgradeAmount,
+
+            base_unit_price:
+              item.baseUnitPrice,
+
+            unit_price:
+              item.unitPrice,
+
+            quantity:
+              item.quantity,
+
+            line_subtotal:
+              item.lineSubtotal,
+
+            display_unit_price:
+              item.displayUnitPrice,
+
+            display_line_subtotal:
+              item.displayLineSubtotal,
+          })
+        );
 
       /* ===================================================
          SUCCESS
@@ -2648,28 +3051,23 @@ Deno.serve(
         paypal_status:
           paypalStatus,
 
+        items:
+          responseItems,
+
         pricing: {
           currency:
             SETTLEMENT_CURRENCY,
 
           /*
-           * Cosmetic-grade base price before battery.
+           * Full merchandise subtotal before shipping.
            */
-          base_unit_price:
-            safeBaseUnitPrice,
-
-          battery_upgrade_amount:
-            batteryUpgradeAmount,
+          item_subtotal:
+            itemSubtotal,
 
           /*
-           * Final price PayPal actually charges per device.
+           * Alias used by capture / existing checkout.
            */
-          unit_price:
-            safeUnitPrice,
-
-          quantity,
-
-          item_subtotal:
+          subtotal_amount:
             itemSubtotal,
 
           shipping_amount:
@@ -2678,13 +3076,46 @@ Deno.serve(
           total_amount:
             finalTotal,
 
+          /*
+           * Total number of physical units.
+           */
+          quantity:
+            totalQuantity,
+
+          /*
+           * Number of distinct order lines.
+           */
+          item_count:
+            validatedItems.length,
+
+          /*
+           * Legacy first-item value.
+           */
+          base_unit_price:
+            firstItem
+              .baseUnitPrice,
+
+          battery_upgrade_amount:
+            totalBatteryUpgradeAmount,
+
+          unit_price:
+            firstItem
+              .unitPrice,
+
           display_currency:
             displayCurrency,
 
+          /*
+           * Legacy first-item display price.
+           */
           display_unit_price:
-            displayUnitPrice,
+            firstItem
+              .displayUnitPrice,
 
           display_subtotal:
+            displaySubtotal,
+
+          display_subtotal_amount:
             displaySubtotal,
 
           display_shipping_amount:
@@ -2695,6 +3126,9 @@ Deno.serve(
 
           exchange_rate:
             exchangeRate,
+
+          items:
+            responseItems,
         },
 
         shipping: {
@@ -2708,54 +3142,12 @@ Deno.serve(
 
           currency:
             SETTLEMENT_CURRENCY,
-        },
 
-        product: {
-          id:
-            product.id,
+          display_amount:
+            displayShippingAmount,
 
-          name:
-            product.name,
-
-          slug:
-            product.slug,
-
-          condition,
-
-          variant_id:
-            variant
-              ?.id ??
-            null,
-
-          storage:
-            variant
-              ?.storage ??
-            null,
-
-          color:
-            variant
-              ?.color ??
-            null,
-
-          sku:
-            variant
-              ?.sku ??
-            null,
-
-          refurbished_grade:
-            condition ===
-              "refurbished"
-              ? refurbishedGrade
-              : null,
-
-          battery_grade:
-            condition ===
-              "refurbished"
-              ? batteryGrade
-              : null,
-
-          battery_upgrade_amount:
-            batteryUpgradeAmount,
+          display_currency:
+            displayCurrency,
         },
       });
     } catch (

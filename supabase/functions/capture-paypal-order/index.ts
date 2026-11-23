@@ -3,6 +3,12 @@ import { createClient } from "@supabase/supabase-js";
 /* =========================================================
    TYPES
 ========================================================= */
+type SupabaseServerClient = {
+  from: (
+    table:
+      string
+  ) => any;
+};
 
 type Language =
   | "pt"
@@ -11,6 +17,16 @@ type Language =
 type SellCondition =
   | "new"
   | "refurbished";
+
+type RefurbishedGrade =
+  | "correct"
+  | "good"
+  | "excellent"
+  | "premium";
+
+type BatteryGrade =
+  | "optimal"
+  | "new";
 
 type RequestBody = {
   paypalOrderId?: string;
@@ -143,49 +159,119 @@ type OrderRow = {
     | null;
 };
 
-type PayPalCapture = {
-  id?: string;
+type OrderItemRow = {
+  id:
+    string;
 
-  status?: string;
+  order_id:
+    string;
+
+  product_id:
+    string;
+
+  variant_id:
+    | string
+    | null;
+
+  product_name:
+    string;
+
+  variant_storage:
+    | string
+    | null;
+
+  variant_color:
+    | string
+    | null;
+
+  condition:
+    SellCondition;
+
+  refurbished_grade:
+    | RefurbishedGrade
+    | null;
+
+  battery_grade:
+    | BatteryGrade
+    | null;
+
+  quantity:
+    number;
+
+  base_unit_price:
+    number
+    | string;
+
+  battery_upgrade_amount:
+    number
+    | string;
+
+  unit_price:
+    number
+    | string;
+
+  line_subtotal:
+    number
+    | string;
+};
+
+type PayPalCapture = {
+  id?:
+    string;
+
+  status?:
+    string;
 
   amount?: {
-    currency_code?: string;
+    currency_code?:
+      string;
 
-    value?: string;
+    value?:
+      string;
   };
 };
 
 type PayPalPurchaseUnit = {
-  reference_id?: string;
+  reference_id?:
+    string;
 
-  custom_id?: string;
+  custom_id?:
+    string;
 
-  invoice_id?: string;
+  invoice_id?:
+    string;
 
   amount?: {
-    currency_code?: string;
+    currency_code?:
+      string;
 
-    value?: string;
+    value?:
+      string;
   };
 
   payments?: {
-    captures?: PayPalCapture[];
+    captures?:
+      PayPalCapture[];
   };
 };
 
 type PayPalOrderResponse = {
-  id?: string;
+  id?:
+    string;
 
-  status?: string;
+  status?:
+    string;
 
   payer?: {
-    payer_id?: string;
+    payer_id?:
+      string;
   };
 
   purchase_units?:
     PayPalPurchaseUnit[];
 
-  raw?: string;
+  raw?:
+    string;
 
   [key: string]:
     unknown;
@@ -240,8 +326,11 @@ const corsHeaders = {
 ========================================================= */
 
 function jsonResponse(
-  body: unknown,
-  status = 200
+  body:
+    unknown,
+
+  status =
+    200
 ) {
   return new Response(
     JSON.stringify(
@@ -304,7 +393,8 @@ function conflictResponse(
 
       message,
 
-      ...(extra ?? {}),
+      ...(extra ??
+        {}),
     },
     409
   );
@@ -367,8 +457,10 @@ function toMoney(
       (
         parsed +
         Number.EPSILON
-      ) * 100
-    ) / 100
+      ) *
+        100
+    ) /
+    100
   );
 }
 
@@ -381,10 +473,12 @@ function moneyMatches(
 ) {
   return (
     Math.round(
-      left * 100
+      left *
+        100
     ) ===
     Math.round(
-      right * 100
+      right *
+        100
     )
   );
 }
@@ -466,7 +560,9 @@ function parseJsonObject(
   value:
     string
 ) {
-  if (!value) {
+  if (
+    !value
+  ) {
     return {};
   }
 
@@ -487,6 +583,101 @@ function parseJsonObject(
 }
 
 /* =========================================================
+   LABEL HELPERS
+========================================================= */
+
+function getConditionLabel(
+  condition:
+    SellCondition,
+
+  language:
+    Language
+) {
+  if (
+    language ===
+      "pt"
+  ) {
+    return condition ===
+        "refurbished"
+      ? "Recondicionado"
+      : "Novo";
+  }
+
+  return condition ===
+      "refurbished"
+    ? "Refurbished"
+    : "New";
+}
+
+function getRefurbishedGradeLabel(
+  grade:
+    RefurbishedGrade,
+
+  language:
+    Language
+) {
+  if (
+    language ===
+      "pt"
+  ) {
+    switch (
+      grade
+    ) {
+      case "correct":
+        return "Correcto";
+
+      case "good":
+        return "Bom";
+
+      case "excellent":
+        return "Excelente";
+
+      case "premium":
+        return "Premium";
+    }
+  }
+
+  switch (
+    grade
+  ) {
+    case "correct":
+      return "Correct";
+
+    case "good":
+      return "Good";
+
+    case "excellent":
+      return "Excellent";
+
+    case "premium":
+      return "Premium";
+  }
+}
+
+function getBatteryGradeLabel(
+  grade:
+    BatteryGrade,
+
+  language:
+    Language
+) {
+  if (
+    language ===
+      "pt"
+  ) {
+    return grade ===
+        "new"
+      ? "Bateria nova"
+      : "Bateria ótima";
+  }
+
+  return grade ===
+      "new"
+    ? "New battery"
+    : "Optimal battery";
+}
+
+/* =========================================================
    ADDRESS
 ========================================================= */
 
@@ -495,7 +686,8 @@ function buildTextAddress(
     OrderRow
 ) {
   const lines:
-    string[] = [];
+    string[] =
+    [];
 
   const streetLine =
     [
@@ -608,6 +800,488 @@ function buildHtmlAddress(
 }
 
 /* =========================================================
+   ORDER ITEMS
+========================================================= */
+
+async function loadOrderItems(
+  supabase:
+    SupabaseServerClient,
+
+  orderId:
+    string
+)
+ {
+  const {
+    data,
+    error,
+  } =
+    await supabase
+      .from(
+        "order_items"
+      )
+      .select(
+        `
+        id,
+        order_id,
+        product_id,
+        variant_id,
+        product_name,
+        variant_storage,
+        variant_color,
+        condition,
+        refurbished_grade,
+        battery_grade,
+        quantity,
+        base_unit_price,
+        battery_upgrade_amount,
+        unit_price,
+        line_subtotal
+        `
+      )
+      .eq(
+        "order_id",
+        orderId
+      )
+      .order(
+        "created_at",
+        {
+          ascending:
+            true,
+        }
+      );
+
+  if (
+    error
+  ) {
+    console.error(
+      "Order items lookup error:",
+      error
+    );
+
+    throw new Error(
+      "ORDER_ITEMS_LOOKUP_FAILED"
+    );
+  }
+
+  return (
+    data ??
+    []
+  ) as
+    OrderItemRow[];
+}
+
+function normalizeOrderItems(
+  items:
+    OrderItemRow[]
+) {
+  return items.map(
+    (
+      item
+    ) => ({
+      product_id:
+        item.product_id,
+
+      variant_id:
+        item.variant_id,
+
+      product_name:
+        item.product_name,
+
+      storage:
+        item.variant_storage,
+
+      color:
+        item.variant_color,
+
+      condition:
+        item.condition,
+
+      refurbished_grade:
+        item.refurbished_grade,
+
+      battery_grade:
+        item.battery_grade,
+
+      base_unit_price:
+        toMoney(
+          item.base_unit_price
+        ) ??
+        0,
+
+      battery_upgrade_amount:
+        toMoney(
+          item.battery_upgrade_amount
+        ) ??
+        0,
+
+      unit_price:
+        toMoney(
+          item.unit_price
+        ) ??
+        0,
+
+      quantity:
+        Number(
+          item.quantity
+        ),
+
+      line_subtotal:
+        toMoney(
+          item.line_subtotal
+        ) ??
+        0,
+    })
+  );
+}
+
+/* =========================================================
+   EMAIL ITEM TEXT
+========================================================= */
+
+function buildTextItems(
+  items:
+    OrderItemRow[],
+
+  language:
+    Language
+) {
+  return items
+    .map(
+      (
+        item,
+        index
+      ) => {
+        const unitPrice =
+          toMoney(
+            item.unit_price
+          ) ??
+          0;
+
+        const lineSubtotal =
+          toMoney(
+            item.line_subtotal
+          ) ??
+          0;
+
+        const lines = [
+          `${
+            index +
+            1
+          }. ${item.product_name}`,
+        ];
+
+        if (
+          item.variant_storage
+        ) {
+          lines.push(
+            `${
+              language ===
+                "pt"
+                ? "Armazenamento"
+                : "Storage"
+            }: ${item.variant_storage}`
+          );
+        }
+
+        if (
+          item.variant_color
+        ) {
+          lines.push(
+            `${
+              language ===
+                "pt"
+                ? "Cor"
+                : "Colour"
+            }: ${item.variant_color}`
+          );
+        }
+
+        lines.push(
+          `${
+            language ===
+              "pt"
+              ? "Condição"
+              : "Condition"
+          }: ${getConditionLabel(
+            item.condition,
+            language
+          )}`
+        );
+
+        if (
+          item.refurbished_grade
+        ) {
+          lines.push(
+            `${
+              language ===
+                "pt"
+                ? "Estado estético"
+                : "Cosmetic grade"
+            }: ${getRefurbishedGradeLabel(
+              item.refurbished_grade,
+              language
+            )}`
+          );
+        }
+
+        if (
+          item.battery_grade
+        ) {
+          lines.push(
+            `${
+              language ===
+                "pt"
+                ? "Bateria"
+                : "Battery"
+            }: ${getBatteryGradeLabel(
+              item.battery_grade,
+              language
+            )}`
+          );
+        }
+
+        lines.push(
+          `${
+            language ===
+              "pt"
+              ? "Quantidade"
+              : "Quantity"
+          }: ${item.quantity}`
+        );
+
+        lines.push(
+          `${
+            language ===
+              "pt"
+              ? "Preço unitário"
+              : "Unit price"
+          }: ${formatMoney(
+            unitPrice,
+            SETTLEMENT_CURRENCY,
+            language
+          )}`
+        );
+
+        lines.push(
+          `${
+            language ===
+              "pt"
+              ? "Subtotal do artigo"
+              : "Item subtotal"
+          }: ${formatMoney(
+            lineSubtotal,
+            SETTLEMENT_CURRENCY,
+            language
+          )}`
+        );
+
+        return lines.join(
+          "\n"
+        );
+      }
+    )
+    .join(
+      "\n\n"
+    );
+}
+
+/* =========================================================
+   EMAIL ITEM HTML
+========================================================= */
+
+function buildHtmlItems(
+  items:
+    OrderItemRow[],
+
+  language:
+    Language
+) {
+  return items
+    .map(
+      (
+        item
+      ) => {
+        const unitPrice =
+          toMoney(
+            item.unit_price
+          ) ??
+          0;
+
+        const lineSubtotal =
+          toMoney(
+            item.line_subtotal
+          ) ??
+          0;
+
+        const safeProductName =
+          escapeHtml(
+            item.product_name
+          );
+
+        const safeStorage =
+          item.variant_storage
+            ? escapeHtml(
+                item.variant_storage
+              )
+            : null;
+
+        const safeColor =
+          item.variant_color
+            ? escapeHtml(
+                item.variant_color
+              )
+            : null;
+
+        const conditionLabel =
+          escapeHtml(
+            getConditionLabel(
+              item.condition,
+              language
+            )
+          );
+
+        const gradeLabel =
+          item.refurbished_grade
+            ? escapeHtml(
+                getRefurbishedGradeLabel(
+                  item.refurbished_grade,
+                  language
+                )
+              )
+            : null;
+
+        const batteryLabel =
+          item.battery_grade
+            ? escapeHtml(
+                getBatteryGradeLabel(
+                  item.battery_grade,
+                  language
+                )
+              )
+            : null;
+
+        return `
+          <div style="padding:16px 0;border-top:1px solid #e5e5e5;">
+            <div style="font-size:16px;font-weight:900;color:#111;">
+              ${safeProductName}
+            </div>
+
+            ${
+              safeStorage
+                ? `
+                  <div style="font-size:13px;color:#666;margin-top:5px;">
+                    ${
+                      language ===
+                        "pt"
+                        ? "Armazenamento"
+                        : "Storage"
+                    }: ${safeStorage}
+                  </div>
+                `
+                : ""
+            }
+
+            ${
+              safeColor
+                ? `
+                  <div style="font-size:13px;color:#666;margin-top:3px;">
+                    ${
+                      language ===
+                        "pt"
+                        ? "Cor"
+                        : "Colour"
+                    }: ${safeColor}
+                  </div>
+                `
+                : ""
+            }
+
+            <div style="font-size:13px;color:#666;margin-top:3px;">
+              ${
+                language ===
+                  "pt"
+                  ? "Condição"
+                  : "Condition"
+              }: ${conditionLabel}
+            </div>
+
+            ${
+              gradeLabel
+                ? `
+                  <div style="font-size:13px;color:#666;margin-top:3px;">
+                    ${
+                      language ===
+                        "pt"
+                        ? "Estado estético"
+                        : "Cosmetic grade"
+                    }: ${gradeLabel}
+                  </div>
+                `
+                : ""
+            }
+
+            ${
+              batteryLabel
+                ? `
+                  <div style="font-size:13px;color:#666;margin-top:3px;">
+                    ${
+                      language ===
+                        "pt"
+                        ? "Bateria"
+                        : "Battery"
+                    }: ${batteryLabel}
+                  </div>
+                `
+                : ""
+            }
+
+            <div style="display:flex;justify-content:space-between;gap:16px;margin-top:12px;font-size:13px;">
+              <span style="color:#666;">
+                ${
+                  language ===
+                    "pt"
+                    ? "Quantidade"
+                    : "Quantity"
+                }: ${item.quantity}
+              </span>
+
+              <strong>
+                ${formatMoney(
+                  unitPrice,
+                  SETTLEMENT_CURRENCY,
+                  language
+                )}
+              </strong>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;gap:16px;margin-top:6px;font-size:14px;">
+              <span style="color:#666;">
+                ${
+                  language ===
+                    "pt"
+                    ? "Subtotal"
+                    : "Subtotal"
+                }
+              </span>
+
+              <strong>
+                ${formatMoney(
+                  lineSubtotal,
+                  SETTLEMENT_CURRENCY,
+                  language
+                )}
+              </strong>
+            </div>
+          </div>
+        `;
+      }
+    )
+    .join(
+      ""
+    );
+}
+
+/* =========================================================
    EMAIL
 ========================================================= */
 
@@ -615,6 +1289,7 @@ async function sendPaidOrderEmail({
   resendApiKey,
   fromEmail,
   order,
+  items,
   captureId,
 }: {
   resendApiKey:
@@ -625,6 +1300,9 @@ async function sendPaidOrderEmail({
 
   order:
     OrderRow;
+
+  items:
+    OrderItemRow[];
 
   captureId:
     string;
@@ -659,12 +1337,6 @@ async function sendPaidOrderEmail({
     ) ??
     0;
 
-  const unitPrice =
-    toMoney(
-      order.unit_price
-    ) ??
-    0;
-
   const displayTotal =
     toMoney(
       order.display_total_amount
@@ -673,25 +1345,6 @@ async function sendPaidOrderEmail({
   const exchangeRate =
     toMoney(
       order.exchange_rate
-    );
-
-  const conditionLabel =
-    language ===
-      "pt"
-      ? order.condition ===
-          "refurbished"
-        ? "Recondicionado"
-        : "Novo"
-      : order.condition ===
-          "refurbished"
-        ? "Refurbished"
-        : "New";
-
-  const formattedUnit =
-    formatMoney(
-      unitPrice,
-      SETTLEMENT_CURRENCY,
-      language
     );
 
   const formattedSubtotal =
@@ -753,25 +1406,6 @@ async function sendPaidOrderEmail({
       order.order_number
     );
 
-  const safeProduct =
-    escapeHtml(
-      order.product_name
-    );
-
-  const safeStorage =
-    order.storage
-      ? escapeHtml(
-          order.storage
-        )
-      : "";
-
-  const safeColor =
-    order.color
-      ? escapeHtml(
-          order.color
-        )
-      : "";
-
   const safeCaptureId =
     escapeHtml(
       captureId
@@ -780,6 +1414,18 @@ async function sendPaidOrderEmail({
   const htmlAddress =
     buildHtmlAddress(
       order
+    );
+
+  const itemsText =
+    buildTextItems(
+      items,
+      language
+    );
+
+  const itemsHtml =
+    buildHtmlItems(
+      items,
+      language
     );
 
   const text =
@@ -796,24 +1442,26 @@ O pagamento da sua encomenda foi recebido com sucesso.
 ENCOMENDA
 
 Número: ${order.order_number}
-Produto: ${order.product_name}
-${order.storage ? `Armazenamento: ${order.storage}` : ""}
-${order.color ? `Cor: ${order.color}` : ""}
-Condição: ${conditionLabel}
-Quantidade: ${order.quantity}
-Preço unitário: ${formattedUnit}
+
+ARTIGOS
+
+${itemsText}
 
 Subtotal: ${formattedSubtotal}
 Envio: ${formattedShipping}
 Total pago: ${formattedTotal}
 
-${showCveEquivalent && formattedDisplayTotal
-  ? `Equivalente apresentado: ${formattedDisplayTotal}${
-      exchangeRate !== null
-        ? `\nTaxa: 1 EUR = ${exchangeRate} CVE`
-        : ""
-    }`
-  : ""}
+${
+  showCveEquivalent &&
+  formattedDisplayTotal
+    ? `Equivalente apresentado: ${formattedDisplayTotal}${
+        exchangeRate !==
+        null
+          ? `\nTaxa: 1 EUR = ${exchangeRate} CVE`
+          : ""
+      }`
+    : ""
+}
 
 MORADA DE ENTREGA
 
@@ -839,24 +1487,26 @@ We successfully received payment for your order.
 ORDER
 
 Order number: ${order.order_number}
-Product: ${order.product_name}
-${order.storage ? `Storage: ${order.storage}` : ""}
-${order.color ? `Colour: ${order.color}` : ""}
-Condition: ${conditionLabel}
-Quantity: ${order.quantity}
-Unit price: ${formattedUnit}
+
+ITEMS
+
+${itemsText}
 
 Subtotal: ${formattedSubtotal}
 Shipping: ${formattedShipping}
 Total paid: ${formattedTotal}
 
-${showCveEquivalent && formattedDisplayTotal
-  ? `Displayed equivalent: ${formattedDisplayTotal}${
-      exchangeRate !== null
-        ? `\nRate: 1 EUR = ${exchangeRate} CVE`
-        : ""
-    }`
-  : ""}
+${
+  showCveEquivalent &&
+  formattedDisplayTotal
+    ? `Displayed equivalent: ${formattedDisplayTotal}${
+        exchangeRate !==
+        null
+          ? `\nRate: 1 EUR = ${exchangeRate} CVE`
+          : ""
+      }`
+    : ""
+}
 
 DELIVERY ADDRESS
 
@@ -944,73 +1594,77 @@ POKAPOK`;
       </p>
 
       <div style="background:#f6f7f9;border-radius:16px;padding:18px;margin:22px 0;">
-        <strong>
+        <div style="font-size:12px;color:#667085;font-weight:800;letter-spacing:.5px;">
           ${
             language ===
               "pt"
-              ? "Encomenda"
-              : "Order"
-          } ${safeOrderNumber}
-        </strong>
+              ? "ENCOMENDA"
+              : "ORDER"
+          }
+        </div>
 
-        <br><br>
+        <div style="font-size:18px;font-weight:900;margin-top:5px;">
+          ${safeOrderNumber}
+        </div>
+      </div>
 
-        ${safeProduct}<br>
-
-        ${
-          safeStorage
-            ? `${safeStorage}<br>`
-            : ""
-        }
-
-        ${
-          safeColor
-            ? `${safeColor}<br>`
-            : ""
-        }
-
-        ${conditionLabel}<br>
-
+      <h2 style="font-size:20px;margin:28px 0 4px;">
         ${
           language ===
             "pt"
-            ? "Quantidade"
-            : "Quantity"
-        }: ${order.quantity}
+            ? "Artigos"
+            : "Items"
+        }
+      </h2>
+
+      <div>
+        ${itemsHtml}
       </div>
 
-      <div style="border-top:1px solid #e5e5e5;padding-top:16px;">
+      <div style="border-top:1px solid #e5e5e5;padding-top:16px;margin-top:6px;">
         <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-          <span style="color:#666;">${
-            language ===
-              "pt"
-              ? "Subtotal"
-              : "Subtotal"
-          }</span>
+          <span style="color:#666;">
+            ${
+              language ===
+                "pt"
+                ? "Subtotal"
+                : "Subtotal"
+            }
+          </span>
 
-          <strong>${formattedSubtotal}</strong>
+          <strong>
+            ${formattedSubtotal}
+          </strong>
         </div>
 
         <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-          <span style="color:#666;">${
-            language ===
-              "pt"
-              ? "Envio"
-              : "Shipping"
-          }</span>
+          <span style="color:#666;">
+            ${
+              language ===
+                "pt"
+                ? "Envio"
+                : "Shipping"
+            }
+          </span>
 
-          <strong>${formattedShipping}</strong>
+          <strong>
+            ${formattedShipping}
+          </strong>
         </div>
 
         <div style="display:flex;justify-content:space-between;font-size:20px;border-top:1px solid #e5e5e5;padding-top:14px;margin-top:14px;">
-          <strong>${
-            language ===
-              "pt"
-              ? "Total pago"
-              : "Total paid"
-          }</strong>
+          <strong>
+            ${
+              language ===
+                "pt"
+                ? "Total pago"
+                : "Total paid"
+            }
+          </strong>
 
-          <strong>${formattedTotal}</strong>
+          <strong>
+            ${formattedTotal}
+          </strong>
         </div>
       </div>
 
@@ -1039,7 +1693,11 @@ POKAPOK`;
       </h2>
 
       <div style="background:#f6f7f9;border-radius:16px;padding:18px;line-height:1.7;">
-        <strong>PayPal</strong><br>
+        <strong>
+          PayPal
+        </strong>
+
+        <br>
 
         ${
           language ===
@@ -1086,6 +1744,9 @@ POKAPOK`;
             to: [
               order.customer_email,
             ],
+
+            reply_to:
+              "orders@pokapok.cv",
 
             subject,
 
@@ -1290,10 +1951,6 @@ async function capturePayPalPayment(
           "Content-Type":
             "application/json",
 
-          /*
-           * Stable idempotency key for this specific
-           * PayPal order.
-           */
           "PayPal-Request-Id":
             `pokapok-capture-${paypalOrderId}`,
         },
@@ -1387,7 +2044,8 @@ function getVerifiedCapture(
         !captureId ||
         !currency ||
         amount === null ||
-        amount <= 0
+        amount <=
+          0
       ) {
         continue;
       }
@@ -1425,6 +2083,121 @@ function getVerifiedCapture(
   }
 
   return null;
+}
+
+/* =========================================================
+   ORDER SELECT
+========================================================= */
+
+const ORDER_SELECT = `
+  id,
+  order_number,
+  customer_name,
+  customer_email,
+  customer_whatsapp,
+  customer_country,
+  customer_state_region,
+  customer_city,
+  customer_street,
+  customer_house_number,
+  customer_address_line_2,
+  customer_postal_code,
+  language,
+  product_name,
+  storage,
+  color,
+  condition,
+  quantity,
+  unit_price,
+  subtotal_amount,
+  shipping_amount,
+  total_amount,
+  currency,
+  display_currency,
+  display_total_amount,
+  exchange_rate,
+  payment_method,
+  payment_status,
+  order_status,
+  payment_received_at,
+  paypal_order_id,
+  paypal_capture_id,
+  paypal_status,
+  paypal_payer_id
+`;
+
+/* =========================================================
+   BUILD RESPONSE PRICING
+========================================================= */
+
+function buildPricingResponse(
+  order:
+    OrderRow,
+
+  items:
+    OrderItemRow[]
+) {
+  const normalizedItems =
+    normalizeOrderItems(
+      items
+    );
+
+  return {
+    currency:
+      cleanString(
+        order.currency
+      ).toUpperCase(),
+
+    item_subtotal:
+      toMoney(
+        order.subtotal_amount
+      ),
+
+    subtotal_amount:
+      toMoney(
+        order.subtotal_amount
+      ),
+
+    shipping_amount:
+      toMoney(
+        order.shipping_amount
+      ),
+
+    total_amount:
+      toMoney(
+        order.total_amount
+      ),
+
+    quantity:
+      normalizedItems.reduce(
+        (
+          total,
+          item
+        ) =>
+          total +
+          item.quantity,
+        0
+      ),
+
+    item_count:
+      normalizedItems.length,
+
+    display_currency:
+      order.display_currency,
+
+    display_total_amount:
+      toMoney(
+        order.display_total_amount
+      ),
+
+    exchange_rate:
+      toMoney(
+        order.exchange_rate
+      ),
+
+    items:
+      normalizedItems,
+  };
 }
 
 /* =========================================================
@@ -1564,42 +2337,7 @@ Deno.serve(
             "orders"
           )
           .select(
-            `
-            id,
-            order_number,
-            customer_name,
-            customer_email,
-            customer_whatsapp,
-            customer_country,
-            customer_state_region,
-            customer_city,
-            customer_street,
-            customer_house_number,
-            customer_address_line_2,
-            customer_postal_code,
-            language,
-            product_name,
-            storage,
-            color,
-            condition,
-            quantity,
-            unit_price,
-            subtotal_amount,
-            shipping_amount,
-            total_amount,
-            currency,
-            display_currency,
-            display_total_amount,
-            exchange_rate,
-            payment_method,
-            payment_status,
-            order_status,
-            payment_received_at,
-            paypal_order_id,
-            paypal_capture_id,
-            paypal_status,
-            paypal_payer_id
-            `
+            ORDER_SELECT
           )
           .eq(
             "paypal_order_id",
@@ -1628,9 +2366,6 @@ Deno.serve(
 
       /* ===================================================
          ALREADY FINALIZED
-
-         If our DB already says paid, do not capture or
-         email again.
       =================================================== */
 
       if (
@@ -1639,6 +2374,12 @@ Deno.serve(
           "paid" &&
         order.paypal_capture_id
       ) {
+        const existingItems =
+          await loadOrderItems(
+            supabase,
+            order.id
+          );
+
         return jsonResponse({
           success:
             true,
@@ -1654,6 +2395,12 @@ Deno.serve(
 
           order_number:
             order.order_number,
+
+          payment_status:
+            order.payment_status,
+
+          order_status:
+            order.order_status,
 
           email_sent:
             false,
@@ -1683,6 +2430,17 @@ Deno.serve(
                 order.total_amount
               ),
           },
+
+          items:
+            normalizeOrderItems(
+              existingItems
+            ),
+
+          pricing:
+            buildPricingResponse(
+              order,
+              existingItems
+            ),
         });
       }
 
@@ -1729,10 +2487,6 @@ Deno.serve(
 
       /* ===================================================
          RECOVER ORDER BY PAYPAL REFERENCE
-
-         This protects against the rare case where PayPal was
-         created successfully but saving paypal_order_id into
-         Supabase failed.
       =================================================== */
 
       if (
@@ -1769,42 +2523,7 @@ Deno.serve(
                 "orders"
               )
               .select(
-                `
-                id,
-                order_number,
-                customer_name,
-                customer_email,
-                customer_whatsapp,
-                customer_country,
-                customer_state_region,
-                customer_city,
-                customer_street,
-                customer_house_number,
-                customer_address_line_2,
-                customer_postal_code,
-                language,
-                product_name,
-                storage,
-                color,
-                condition,
-                quantity,
-                unit_price,
-                subtotal_amount,
-                shipping_amount,
-                total_amount,
-                currency,
-                display_currency,
-                display_total_amount,
-                exchange_rate,
-                payment_method,
-                payment_status,
-                order_status,
-                payment_received_at,
-                paypal_order_id,
-                paypal_capture_id,
-                paypal_status,
-                paypal_payer_id
-                `
+                ORDER_SELECT
               )
               .eq(
                 "id",
@@ -1886,6 +2605,81 @@ Deno.serve(
         );
       }
 
+      /* ===================================================
+         LOAD ORDER ITEMS
+      =================================================== */
+
+      const orderItems =
+        await loadOrderItems(
+          supabase,
+          order.id
+        );
+
+      if (
+        orderItems.length ===
+          0
+      ) {
+        return serverError(
+          "This order does not contain any saved order items.",
+          "ORDER_ITEMS_MISSING"
+        );
+      }
+
+      /* ===================================================
+         VERIFY SAVED CHILD TOTALS AGAINST PARENT
+      =================================================== */
+
+      const childSubtotal =
+        orderItems.reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            (
+              toMoney(
+                item.line_subtotal
+              ) ??
+              0
+            ),
+          0
+        );
+
+      const expectedSubtotal =
+        toMoney(
+          order.subtotal_amount
+        );
+
+      if (
+        expectedSubtotal ===
+          null ||
+        !moneyMatches(
+          childSubtotal,
+          expectedSubtotal
+        )
+      ) {
+        console.error(
+          "Order item subtotal mismatch:",
+          {
+            orderId:
+              order.id,
+
+            expectedSubtotal,
+
+            childSubtotal,
+          }
+        );
+
+        return serverError(
+          "The saved order items do not match the parent order subtotal.",
+          "ORDER_ITEMS_TOTAL_MISMATCH"
+        );
+      }
+
+      /* ===================================================
+         EXPECTED PAYMENT
+      =================================================== */
+
       const expectedAmount =
         toMoney(
           order.total_amount
@@ -1899,7 +2693,8 @@ Deno.serve(
       if (
         expectedAmount ===
           null ||
-        expectedAmount <= 0
+        expectedAmount <=
+          0
       ) {
         return serverError(
           "The POKAPOK order has an invalid expected total.",
@@ -1961,11 +2756,6 @@ Deno.serve(
           paypalResult =
             captureResult;
         } else {
-          /*
-           * Network/API response can be ambiguous after
-           * PayPal has actually accepted a capture.
-           * Re-fetch before declaring failure.
-           */
           const retryLookup =
             await getPayPalOrder(
               paypalOrderId,
@@ -2056,6 +2846,10 @@ Deno.serve(
         );
       }
 
+      /* ===================================================
+         VERIFY CURRENCY
+      =================================================== */
+
       if (
         verifiedCapture.currency !==
           SETTLEMENT_CURRENCY
@@ -2073,6 +2867,10 @@ Deno.serve(
           }
         );
       }
+
+      /* ===================================================
+         VERIFY AMOUNT
+      =================================================== */
 
       if (
         !moneyMatches(
@@ -2114,6 +2912,10 @@ Deno.serve(
         );
       }
 
+      /* ===================================================
+         VERIFY ORDER REFERENCE
+      =================================================== */
+
       if (
         verifiedCapture
           .pokapokOrderId &&
@@ -2129,10 +2931,6 @@ Deno.serve(
 
       /* ===================================================
          FINALIZE ORDER
-
-         Predicate payment_status != paid makes this transition
-         idempotent. If another request finalizes it first, this
-         update returns no row and we skip the email.
       =================================================== */
 
       const paidAt =
@@ -2186,42 +2984,7 @@ Deno.serve(
             "paid"
           )
           .select(
-            `
-            id,
-            order_number,
-            customer_name,
-            customer_email,
-            customer_whatsapp,
-            customer_country,
-            customer_state_region,
-            customer_city,
-            customer_street,
-            customer_house_number,
-            customer_address_line_2,
-            customer_postal_code,
-            language,
-            product_name,
-            storage,
-            color,
-            condition,
-            quantity,
-            unit_price,
-            subtotal_amount,
-            shipping_amount,
-            total_amount,
-            currency,
-            display_currency,
-            display_total_amount,
-            exchange_rate,
-            payment_method,
-            payment_status,
-            order_status,
-            payment_received_at,
-            paypal_order_id,
-            paypal_capture_id,
-            paypal_status,
-            paypal_payer_id
-            `
+            ORDER_SELECT
           );
 
       if (
@@ -2240,7 +3003,8 @@ Deno.serve(
 
       const finalizedOrder =
         (
-          finalizedRows?.[0] ??
+          finalizedRows
+            ?.[0] ??
           null
         ) as
           | OrderRow
@@ -2257,61 +3021,34 @@ Deno.serve(
         order =
           finalizedOrder;
       } else {
-        /*
-         * Another request already completed the transition.
-         * Re-read the final state.
-         */
         const {
           data:
             latestOrder,
+
+          error:
+            latestOrderError,
         } =
           await supabase
             .from(
               "orders"
             )
             .select(
-              `
-              id,
-              order_number,
-              customer_name,
-              customer_email,
-              customer_whatsapp,
-              customer_country,
-              customer_state_region,
-              customer_city,
-              customer_street,
-              customer_house_number,
-              customer_address_line_2,
-              customer_postal_code,
-              language,
-              product_name,
-              storage,
-              color,
-              condition,
-              quantity,
-              unit_price,
-              subtotal_amount,
-              shipping_amount,
-              total_amount,
-              currency,
-              display_currency,
-              display_total_amount,
-              exchange_rate,
-              payment_method,
-              payment_status,
-              order_status,
-              payment_received_at,
-              paypal_order_id,
-              paypal_capture_id,
-              paypal_status,
-              paypal_payer_id
-              `
+              ORDER_SELECT
             )
             .eq(
               "id",
               order.id
             )
             .single();
+
+        if (
+          latestOrderError
+        ) {
+          console.error(
+            "Could not reload finalized order:",
+            latestOrderError
+          );
+        }
 
         if (
           latestOrder
@@ -2324,11 +3061,6 @@ Deno.serve(
 
       /* ===================================================
          CONFIRMATION EMAIL
-
-         Only the request that actually transitions the order
-         to "paid" sends the email.
-
-         A Resend failure NEVER undoes the successful payment.
       =================================================== */
 
       let emailSent =
@@ -2355,6 +3087,9 @@ Deno.serve(
 
               order,
 
+              items:
+                orderItems,
+
               captureId:
                 verifiedCapture
                   .captureId,
@@ -2380,8 +3115,13 @@ Deno.serve(
       }
 
       /* ===================================================
-         SUCCESS
+         RESPONSE
       =================================================== */
+
+      const normalizedItems =
+        normalizeOrderItems(
+          orderItems
+        );
 
       return jsonResponse({
         success:
@@ -2434,36 +3174,14 @@ Deno.serve(
               .amount,
         },
 
-        pricing: {
-          currency:
-            expectedCurrency,
+        items:
+          normalizedItems,
 
-          subtotal_amount:
-            toMoney(
-              order.subtotal_amount
-            ),
-
-          shipping_amount:
-            toMoney(
-              order.shipping_amount
-            ),
-
-          total_amount:
-            expectedAmount,
-
-          display_currency:
-            order.display_currency,
-
-          display_total_amount:
-            toMoney(
-              order.display_total_amount
-            ),
-
-          exchange_rate:
-            toMoney(
-              order.exchange_rate
-            ),
-        },
+        pricing:
+          buildPricingResponse(
+            order,
+            orderItems
+          ),
       });
     } catch (
       error

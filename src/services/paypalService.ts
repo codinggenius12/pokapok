@@ -21,10 +21,10 @@ export type PayPalBatteryGrade =
   | "new";
 
 /* =========================================================
-   CREATE PAYPAL ORDER
+   PAYPAL ITEM INPUT
 ========================================================= */
 
-export type CreatePayPalOrderInput = {
+export type CreatePayPalOrderItemInput = {
   productId:
     string;
 
@@ -38,20 +38,6 @@ export type CreatePayPalOrderInput = {
   quantity:
     number;
 
-  /* =======================================================
-     REFURBISHED CONFIGURATION
-
-     Required when condition === "refurbished".
-
-     IMPORTANT:
-     These selections tell the server WHAT the customer
-     selected. They do not tell the server the price.
-
-     The server remains responsible for:
-     - reading the cosmetic-grade price from Supabase
-     - applying the fixed +€89 new-battery surcharge
-  ======================================================= */
-
   refurbishedGrade?:
     | PayPalRefurbishedGrade
     | null;
@@ -59,6 +45,19 @@ export type CreatePayPalOrderInput = {
   batteryGrade?:
     | PayPalBatteryGrade
     | null;
+};
+
+/* =========================================================
+   CREATE PAYPAL ORDER
+========================================================= */
+
+export type CreatePayPalOrderInput = {
+  /* =======================================================
+     MULTI-ITEM CART
+  ======================================================= */
+
+  items:
+    CreatePayPalOrderItemInput[];
 
   /* CUSTOMER */
 
@@ -66,7 +65,8 @@ export type CreatePayPalOrderInput = {
     string;
 
   customerEmail?:
-    string;
+    string
+    | null;
 
   customerWhatsapp:
     string;
@@ -80,24 +80,30 @@ export type CreatePayPalOrderInput = {
     string;
 
   city?:
-    string;
+    string
+    | null;
 
   street?:
-    string;
+    string
+    | null;
 
   houseNumber?:
-    string;
+    string
+    | null;
 
   addressLine2?:
-    string;
+    string
+    | null;
 
   postalCode?:
-    string;
+    string
+    | null;
 
   /* ORDER */
 
   notes?:
-    string;
+    string
+    | null;
 
   language:
     PayPalLanguage;
@@ -105,6 +111,70 @@ export type CreatePayPalOrderInput = {
   displayCurrency:
     PayPalDisplayCurrency;
 };
+
+/* =========================================================
+   CREATED PAYPAL ORDER ITEM
+========================================================= */
+
+export type CreatedPayPalOrderItem = {
+  product_id:
+    string;
+
+  variant_id:
+    | string
+    | null;
+
+  product_name:
+    string;
+
+  storage:
+    | string
+    | null;
+
+  color:
+    | string
+    | null;
+
+  sku?:
+    | string
+    | null;
+
+  condition:
+    PayPalCondition;
+
+  refurbished_grade:
+    | PayPalRefurbishedGrade
+    | null;
+
+  battery_grade:
+    | PayPalBatteryGrade
+    | null;
+
+  battery_upgrade_amount:
+    number;
+
+  base_unit_price:
+    number;
+
+  unit_price:
+    number;
+
+  quantity:
+    number;
+
+  line_subtotal:
+    number;
+
+  display_unit_price?:
+    number;
+
+  display_line_subtotal?:
+    number;
+};
+
+/* =========================================================
+   CREATE PAYPAL ORDER RESULT
+========================================================= */
 
 export type CreatePayPalOrderResult = {
   success:
@@ -122,30 +192,37 @@ export type CreatePayPalOrderResult = {
   paypal_status:
     string;
 
+  items:
+    CreatedPayPalOrderItem[];
+
   pricing: {
     currency:
       "EUR";
 
-    /*
-     * Final server-authoritative unit price.
-     *
-     * For refurbished:
-     * cosmetic-grade price from Supabase
-     * + optional fixed €89 battery upgrade.
-     */
-    unit_price:
-      number;
-
-    quantity:
-      number;
-
     item_subtotal:
+      number;
+
+    subtotal_amount?:
       number;
 
     shipping_amount:
       number;
 
     total_amount:
+      number;
+
+    quantity:
+      number;
+
+    item_count:
+      number;
+
+    /*
+     * Legacy compatibility.
+     * For multi-item orders, unit_price refers to the first
+     * order line only.
+     */
+    unit_price:
       number;
 
     display_currency:
@@ -157,6 +234,9 @@ export type CreatePayPalOrderResult = {
     display_subtotal:
       number;
 
+    display_subtotal_amount?:
+      number;
+
     display_shipping_amount:
       number;
 
@@ -165,6 +245,9 @@ export type CreatePayPalOrderResult = {
 
     exchange_rate:
       number;
+
+    items?:
+      CreatedPayPalOrderItem[];
   };
 
   shipping: {
@@ -179,47 +262,12 @@ export type CreatePayPalOrderResult = {
 
     currency:
       "EUR";
-  };
 
-  product: {
-    id:
-      string;
-
-    name:
-      string;
-
-    slug:
-      string;
-
-    condition:
-      PayPalCondition;
-
-    variant_id:
-      | string
-      | null;
-
-    storage:
-      | string
-      | null;
-
-    color:
-      | string
-      | null;
-
-    sku:
-      | string
-      | null;
-
-    refurbished_grade?:
-      | PayPalRefurbishedGrade
-      | null;
-
-    battery_grade?:
-      | PayPalBatteryGrade
-      | null;
-
-    battery_upgrade_amount?:
+    display_amount?:
       number;
+
+    display_currency?:
+      PayPalDisplayCurrency;
   };
 };
 
@@ -282,6 +330,10 @@ export type CapturePayPalOrderResult = {
     currency:
       string;
 
+    item_subtotal?:
+      number
+      | null;
+
     subtotal_amount:
       | number
       | null;
@@ -305,6 +357,9 @@ export type CapturePayPalOrderResult = {
       | number
       | null;
   };
+
+  items?:
+    CreatedPayPalOrderItem[];
 };
 
 /* =========================================================
@@ -322,13 +377,17 @@ const supabaseKey =
     .EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
 function getConfig() {
-  if (!supabaseUrl) {
+  if (
+    !supabaseUrl
+  ) {
     throw new Error(
       "EXPO_PUBLIC_SUPABASE_URL_MISSING"
     );
   }
 
-  if (!supabaseKey) {
+  if (
+    !supabaseKey
+  ) {
     throw new Error(
       "SUPABASE_PUBLIC_KEY_MISSING"
     );
@@ -415,7 +474,9 @@ async function readJsonResponse(
   const text =
     await response.text();
 
-  if (!text) {
+  if (
+    !text
+  ) {
     return {};
   }
 
@@ -444,17 +505,6 @@ export async function createPayPalOrder(
 ): Promise<CreatePayPalOrderResult> {
   const config =
     getConfig();
-
-  const productId =
-    cleanString(
-      input.productId
-    );
-
-  const variantId =
-    cleanString(
-      input.variantId
-    ) ||
-    null;
 
   const customerName =
     cleanString(
@@ -511,98 +561,184 @@ export async function createPayPalOrder(
       input.notes
     );
 
-  /*
-   * New products deliberately send null for both
-   * refurbished-only selections.
-   */
-  const refurbishedGrade:
-    | PayPalRefurbishedGrade
-    | null =
-      input.condition ===
-      "refurbished"
-        ? (
-            isValidRefurbishedGrade(
-              input.refurbishedGrade
-            )
-              ? input.refurbishedGrade
-              : null
-          )
-        : null;
-
-  const batteryGrade:
-    | PayPalBatteryGrade
-    | null =
-      input.condition ===
-      "refurbished"
-        ? (
-            isValidBatteryGrade(
-              input.batteryGrade
-            )
-              ? input.batteryGrade
-              : null
-          )
-        : null;
-
   /* =======================================================
-     VALIDATION
+     ITEMS
   ======================================================= */
 
-  if (!productId) {
-    throw new Error(
-      "PRODUCT_REQUIRED"
-    );
-  }
-
   if (
-    input.condition !==
-      "new" &&
-    input.condition !==
-      "refurbished"
-  ) {
-    throw new Error(
-      "INVALID_CONDITION"
-    );
-  }
-
-  if (
-    !Number.isInteger(
-      input.quantity
+    !Array.isArray(
+      input.items
     ) ||
-    input.quantity < 1 ||
-    input.quantity > 10
+    input.items.length ===
+      0
   ) {
     throw new Error(
-      "INVALID_QUANTITY"
+      "ITEMS_REQUIRED"
     );
   }
 
-  /*
-   * Refurbished checkout must contain the exact
-   * cosmetic condition selected by the customer.
-   */
   if (
-    input.condition ===
-      "refurbished" &&
-    !refurbishedGrade
+    input.items.length >
+    20
   ) {
     throw new Error(
-      "REFURBISHED_GRADE_REQUIRED"
+      "TOO_MANY_ORDER_LINES"
     );
   }
 
-  /*
-   * Refurbished checkout must also contain the
-   * exact battery option selected by the customer.
-   */
-  if (
-    input.condition ===
-      "refurbished" &&
-    !batteryGrade
-  ) {
-    throw new Error(
-      "BATTERY_GRADE_REQUIRED"
+  let totalQuantity =
+    0;
+
+  const items =
+    input.items.map(
+      (
+        item,
+        index
+      ) => {
+        const productId =
+          cleanString(
+            item.productId
+          );
+
+        const variantId =
+          cleanString(
+            item.variantId
+          ) ||
+          null;
+
+        if (
+          !productId
+        ) {
+          console.error(
+            "Missing PayPal product ID:",
+            {
+              index,
+              item,
+            }
+          );
+
+          throw new Error(
+            "PRODUCT_REQUIRED"
+          );
+        }
+
+        if (
+          item.condition !==
+            "new" &&
+          item.condition !==
+            "refurbished"
+        ) {
+          throw new Error(
+            "INVALID_CONDITION"
+          );
+        }
+
+        if (
+          !Number.isInteger(
+            item.quantity
+          ) ||
+          item.quantity <
+            1 ||
+          item.quantity >
+            10
+        ) {
+          throw new Error(
+            "INVALID_QUANTITY"
+          );
+        }
+
+        totalQuantity +=
+          item.quantity;
+
+        if (
+          totalQuantity >
+          50
+        ) {
+          throw new Error(
+            "TOTAL_QUANTITY_TOO_HIGH"
+          );
+        }
+
+        const refurbishedGrade:
+          | PayPalRefurbishedGrade
+          | null =
+          item.condition ===
+            "refurbished" &&
+          isValidRefurbishedGrade(
+            item.refurbishedGrade
+          )
+            ? item.refurbishedGrade
+            : null;
+
+        const batteryGrade:
+          | PayPalBatteryGrade
+          | null =
+          item.condition ===
+            "refurbished" &&
+          isValidBatteryGrade(
+            item.batteryGrade
+          )
+            ? item.batteryGrade
+            : null;
+
+        if (
+          item.condition ===
+            "refurbished"
+        ) {
+          if (
+            !variantId
+          ) {
+            throw new Error(
+              "REFURBISHED_VARIANT_REQUIRED"
+            );
+          }
+
+          if (
+            !refurbishedGrade
+          ) {
+            throw new Error(
+              "REFURBISHED_GRADE_REQUIRED"
+            );
+          }
+
+          if (
+            !batteryGrade
+          ) {
+            throw new Error(
+              "BATTERY_GRADE_REQUIRED"
+            );
+          }
+        }
+
+        return {
+          productId,
+
+          variantId,
+
+          condition:
+            item.condition,
+
+          quantity:
+            item.quantity,
+
+          refurbishedGrade:
+            item.condition ===
+              "refurbished"
+              ? refurbishedGrade
+              : null,
+
+          batteryGrade:
+            item.condition ===
+              "refurbished"
+              ? batteryGrade
+              : null,
+        };
+      }
     );
-  }
+
+  /* =======================================================
+     CUSTOMER VALIDATION
+  ======================================================= */
 
   if (
     !customerName
@@ -631,13 +767,17 @@ export async function createPayPalOrder(
     );
   }
 
-  if (!country) {
+  if (
+    !country
+  ) {
     throw new Error(
       "COUNTRY_REQUIRED"
     );
   }
 
-  if (!stateRegion) {
+  if (
+    !stateRegion
+  ) {
     throw new Error(
       "STATE_REGION_REQUIRED"
     );
@@ -686,25 +826,7 @@ export async function createPayPalOrder(
 
         body:
           JSON.stringify({
-            productId,
-
-            variantId,
-
-            condition:
-              input.condition,
-
-            quantity:
-              input.quantity,
-
-            /*
-             * Selection only.
-             *
-             * No grade price or battery price is sent
-             * from the browser.
-             */
-            refurbishedGrade,
-
-            batteryGrade,
+            items,
 
             customerName,
 
@@ -756,7 +878,9 @@ export async function createPayPalOrder(
       response
     );
 
-  if (!response.ok) {
+  if (
+    !response.ok
+  ) {
     console.error(
       "create-paypal-order failed:",
       data
@@ -846,7 +970,9 @@ export async function capturePayPalOrder(
       response
     );
 
-  if (!response.ok) {
+  if (
+    !response.ok
+  ) {
     console.error(
       "capture-paypal-order failed:",
       data

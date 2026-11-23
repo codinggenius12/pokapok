@@ -44,24 +44,56 @@ export type OrderDisplayCurrency =
   | "EUR";
 
 /* =========================================================
+   ORDER ITEM INPUT
+========================================================= */
+
+export type CreateOrderItemInput = {
+  productId:
+    string;
+
+  variantId?:
+    | string
+    | null;
+
+  condition:
+    OrderCondition;
+
+  /*
+   * Required for refurbished products.
+   */
+  refurbishedGrade?:
+    | OrderRefurbishedGrade
+    | null;
+
+  batteryGrade?:
+    | OrderBatteryGrade
+    | null;
+
+  quantity?:
+    number;
+};
+
+/* =========================================================
    CREATE ORDER INPUT
 
-   Prices are intentionally NOT included.
+   IMPORTANT:
+   Prices are intentionally NOT sent by the browser.
 
-   The frontend sends identifiers, customer information,
-   refurbished selections and the customer's preferred
-   DISPLAY currency.
+   The frontend sends only:
+   - product / variant identifiers
+   - condition
+   - refurbished selections
+   - quantity
+   - customer / delivery information
+   - display currency
 
-   The browser never sends:
-   - authoritative product price
-   - refurbished cosmetic-grade price
-   - battery-upgrade price
-   - exchange rate
-   - unit price
-   - shipping price
-   - order total
+   The Edge Function calculates all monetary values.
 
-   The Edge Function resolves all monetary values.
+   `items` is the new multi-item format.
+
+   The legacy single-item fields remain temporarily supported
+   so the storefront can be upgraded without breaking older
+   calls.
 ========================================================= */
 
 export type CreateOrderInput = {
@@ -70,12 +102,6 @@ export type CreateOrderInput = {
   customerName:
     string;
 
-  /*
-   * Optional.
-   *
-   * An empty string is valid and means that no confirmation
-   * email should be sent.
-   */
   customerEmail?:
     | string
     | null;
@@ -118,24 +144,29 @@ export type CreateOrderInput = {
     | string
     | null;
 
-  /* PRODUCT */
+  /* =======================================================
+     NEW MULTI-ITEM FORMAT
+  ======================================================= */
 
-  productId:
+  items?:
+    CreateOrderItemInput[];
+
+  /* =======================================================
+     LEGACY SINGLE-ITEM FORMAT
+
+     Temporary backwards compatibility.
+  ======================================================= */
+
+  productId?:
     string;
 
   variantId?:
     | string
     | null;
 
-  condition:
+  condition?:
     OrderCondition;
 
-  /*
-   * Required when condition === "refurbished".
-   *
-   * These identify the customer's selected options only.
-   * Their monetary values are resolved by the Edge Function.
-   */
   refurbishedGrade?:
     | OrderRefurbishedGrade
     | null;
@@ -160,7 +191,94 @@ export type CreateOrderInput = {
 };
 
 /* =========================================================
+   CREATED ORDER ITEM
+========================================================= */
+
+export type CreatedOrderItem = {
+  id?:
+    string;
+
+  order_id?:
+    string;
+
+  product_id:
+    string;
+
+  variant_id:
+    | string
+    | null;
+
+  product_name:
+    string;
+
+  variant_storage?:
+    | string
+    | null;
+
+  variant_color?:
+    | string
+    | null;
+
+  storage?:
+    | string
+    | null;
+
+  color?:
+    | string
+    | null;
+
+  condition:
+    OrderCondition;
+
+  refurbished_grade:
+    | OrderRefurbishedGrade
+    | null;
+
+  battery_grade:
+    | OrderBatteryGrade
+    | null;
+
+  quantity:
+    number;
+
+  /*
+   * Price before an optional new-battery surcharge.
+   */
+  base_unit_price:
+    number;
+
+  /*
+   * €89 for a refurbished phone with batteryGrade === "new".
+   */
+  battery_upgrade_amount:
+    number;
+
+  /*
+   * Final price per device.
+   */
+  unit_price:
+    number;
+
+  /*
+   * unit_price × quantity.
+   */
+  line_subtotal:
+    number;
+
+  display_unit_price?:
+    number;
+
+  display_line_subtotal?:
+    number;
+};
+
+/* =========================================================
    ORDER RECORD
+
+   The existing orders table still contains legacy
+   single-product fields for dashboard compatibility.
+
+   Full multi-item order contents should come from order_items.
 ========================================================= */
 
 export type CreatedOrder = {
@@ -221,7 +339,7 @@ export type CreatedOrder = {
   language?:
     OrderLanguage;
 
-  /* PRODUCT */
+  /* LEGACY PRODUCT FIELDS */
 
   product_id?:
     | string
@@ -256,21 +374,21 @@ export type CreatedOrder = {
   battery_upgrade_amount?:
     number;
 
-  quantity:
-    number;
-
   /*
-   * Final per-device price.
-   *
-   * For refurbished devices with a new battery this already
-   * contains the server-calculated +€89.
+   * For multi-item orders this legacy value represents the
+   * first order line only.
    */
   unit_price:
     number;
 
   /*
-   * Product subtotal before shipping.
+   * Total number of devices across all order lines.
    */
+  quantity:
+    number;
+
+  /* TOTALS */
+
   subtotal?:
     number;
 
@@ -278,6 +396,12 @@ export type CreatedOrder = {
     number;
 
   shipping_amount?:
+    number;
+
+  insurance_amount?:
+    number;
+
+  discount_amount?:
     number;
 
   total_amount:
@@ -331,83 +455,79 @@ export type CreatedOrder = {
 
 export type OrderPricing = {
   /*
-   * Actual settlement currency for the bank transfer.
-   * Current POKAPOK settlement is EUR.
+   * Settlement currency.
+   * POKAPOK currently settles bank transfers in EUR.
    */
   currency:
     string;
 
   /*
-   * Supabase cosmetic-grade/device price BEFORE the optional
-   * new-battery surcharge.
+   * Aggregate product subtotal before shipping.
    */
-  base_unit_price?:
+  item_subtotal:
     number;
 
   /*
-   * 89 when:
-   *
-   * condition === "refurbished"
-   * batteryGrade === "new"
-   *
-   * Otherwise 0.
+   * Alias kept for compatibility with existing UI.
    */
-  battery_upgrade_amount?:
+  subtotal_amount:
     number;
 
-  /*
-   * Final server-calculated per-device price.
-   */
-  unit_price:
+  shipping_amount:
     number;
 
-  quantity:
-    number;
-
-  /*
-   * Product(s) before shipping.
-   */
-  subtotal_amount?:
-    number;
-
-  /*
-   * Server-calculated destination shipping.
-   */
-  shipping_amount?:
-    number;
-
-  /*
-   * Final amount to transfer.
-   */
   total_amount:
     number;
 
   /*
-   * Customer-facing display values.
+   * Total number of individual devices.
    */
+  quantity:
+    number;
+
+  /*
+   * Number of distinct cart/order lines.
+   */
+  item_count:
+    number;
+
+  /*
+   * Legacy compatibility values.
+
+   * For multi-item orders unit_price represents the first
+   * order line only.
+   */
+  base_unit_price?:
+    number;
+
+  battery_upgrade_amount?:
+    number;
+
+  unit_price:
+    number;
+
+  /* DISPLAY */
+
   display_currency:
     OrderDisplayCurrency;
 
   display_unit_price:
     number;
 
-  display_subtotal_amount?:
+  display_subtotal_amount:
     number;
 
-  display_shipping_amount?:
+  display_shipping_amount:
     number;
 
   display_total_amount:
     number;
 
-  /*
-   * EUR -> display-currency rate used by the server.
-   *
-   * 110.265 for CVE
-   * 1 for EUR
-   */
   exchange_rate:
     number;
+
+  items:
+    CreatedOrderItem[];
 };
 
 /* =========================================================
@@ -477,6 +597,9 @@ export type CreateOrderResult = {
 
   payment:
     OrderPaymentDetails;
+
+  items:
+    CreatedOrderItem[];
 };
 
 /* =========================================================
@@ -633,6 +756,58 @@ function normalizeBatteryGrade(
 }
 
 /* =========================================================
+   NORMALIZE ONE ORDER INPUT ITEM
+========================================================= */
+
+function normalizeCreateOrderItem(
+  item:
+    CreateOrderItemInput
+) {
+  const productId =
+    cleanString(
+      item.productId
+    );
+
+  const variantId =
+    cleanString(
+      item.variantId
+    ) ||
+    null;
+
+  const condition =
+    item.condition;
+
+  const refurbishedGrade =
+    condition ===
+      "refurbished"
+      ? normalizeRefurbishedGrade(
+          item.refurbishedGrade
+        )
+      : null;
+
+  const batteryGrade =
+    condition ===
+      "refurbished"
+      ? normalizeBatteryGrade(
+          item.batteryGrade
+        )
+      : null;
+
+  const quantity =
+    item.quantity ??
+    1;
+
+  return {
+    productId,
+    variantId,
+    condition,
+    refurbishedGrade,
+    batteryGrade,
+    quantity,
+  };
+}
+
+/* =========================================================
    INPUT NORMALIZATION
 ========================================================= */
 
@@ -695,42 +870,68 @@ function normalizeCreateOrderInput(
       input.customerNotes
     );
 
-  const productId =
-    cleanString(
-      input.productId
-    );
+  /* =======================================================
+     ITEMS
 
-  const variantId =
-    cleanString(
-      input.variantId
-    ) ||
-    null;
+     Prefer the new items[] payload.
 
-  const condition =
-    input.condition;
+     If it is absent, convert the legacy single-product input
+     into a one-item array.
+  ======================================================= */
 
-  /*
-   * New products must never carry refurbished configuration.
-   */
-  const refurbishedGrade =
-    condition ===
-      "refurbished"
-      ? normalizeRefurbishedGrade(
-          input.refurbishedGrade
-        )
-      : null;
+  let items:
+    ReturnType<
+      typeof normalizeCreateOrderItem
+    >[] = [];
 
-  const batteryGrade =
-    condition ===
-      "refurbished"
-      ? normalizeBatteryGrade(
-          input.batteryGrade
-        )
-      : null;
+  if (
+    Array.isArray(
+      input.items
+    ) &&
+    input.items.length >
+      0
+  ) {
+    items =
+      input.items.map(
+        normalizeCreateOrderItem
+      );
+  } else {
+    const legacyProductId =
+      cleanString(
+        input.productId
+      );
 
-  const quantity =
-    input.quantity ??
-    1;
+    if (
+      legacyProductId &&
+      input.condition
+    ) {
+      items = [
+        normalizeCreateOrderItem({
+          productId:
+            legacyProductId,
+
+          variantId:
+            input.variantId ??
+            null,
+
+          condition:
+            input.condition,
+
+          refurbishedGrade:
+            input.refurbishedGrade ??
+            null,
+
+          batteryGrade:
+            input.batteryGrade ??
+            null,
+
+          quantity:
+            input.quantity ??
+            1,
+        }),
+      ];
+    }
+  }
 
   const paymentMethod =
     input.paymentMethod ??
@@ -762,15 +963,7 @@ function normalizeCreateOrderInput(
     customerPostalCode,
     customerNotes,
 
-    productId,
-    variantId,
-
-    condition,
-
-    refurbishedGrade,
-    batteryGrade,
-
-    quantity,
+    items,
 
     paymentMethod,
     language,
@@ -780,24 +973,6 @@ function normalizeCreateOrderInput(
 
 /* =========================================================
    CLIENT-SIDE VALIDATION
-
-   Required customer fields:
-   - full name
-   - WhatsApp
-   - country
-   - island / state / region
-
-   Optional:
-   - email
-   - city
-   - street
-   - house number
-   - address line 2
-   - postal code
-   - notes
-
-   The Edge Function performs the actual security and pricing
-   validation.
 ========================================================= */
 
 function validateCreateOrderInput(
@@ -826,11 +1001,6 @@ function validateCreateOrderInput(
     );
   }
 
-  /*
-   * Email is optional.
-   *
-   * Validate it only if the customer supplied one.
-   */
   if (
     input.customerEmail &&
     !isValidEmail(
@@ -862,50 +1032,117 @@ function validateCreateOrderInput(
     );
   }
 
-  /*
-   * City, street, house number, postal code and address line
-   * 2 are intentionally optional.
-   *
-   * The server still validates whether the selected country
-   * and Cabo Verde island are supported.
-   */
-
   /* =======================================================
-     PRODUCT
+     ITEMS
   ======================================================= */
 
   if (
-    !input.productId
+    input.items.length ===
+    0
   ) {
     throw new Error(
-      "PRODUCT_REQUIRED"
+      "ITEMS_REQUIRED"
     );
   }
 
   if (
-    input.condition !==
-      "new" &&
-    input.condition !==
-      "refurbished"
+    input.items.length >
+    20
   ) {
     throw new Error(
-      "INVALID_CONDITION"
+      "TOO_MANY_ORDER_LINES"
     );
   }
 
-  /* =======================================================
-     QUANTITY
-  ======================================================= */
+  let totalQuantity =
+    0;
+
+  input.items.forEach(
+    (
+      item,
+      index
+    ) => {
+      if (
+        !item.productId
+      ) {
+        console.error(
+          "Missing product ID:",
+          {
+            index,
+            item,
+          }
+        );
+
+        throw new Error(
+          "PRODUCT_REQUIRED"
+        );
+      }
+
+      if (
+        item.condition !==
+          "new" &&
+        item.condition !==
+          "refurbished"
+      ) {
+        throw new Error(
+          "INVALID_CONDITION"
+        );
+      }
+
+      if (
+        !Number.isInteger(
+          item.quantity
+        ) ||
+        item.quantity <
+          1 ||
+        item.quantity >
+          10
+      ) {
+        throw new Error(
+          "INVALID_QUANTITY"
+        );
+      }
+
+      totalQuantity +=
+        item.quantity;
+
+      if (
+        item.condition ===
+          "refurbished"
+      ) {
+        if (
+          !item.variantId
+        ) {
+          throw new Error(
+            "REFURBISHED_VARIANT_REQUIRED"
+          );
+        }
+
+        if (
+          !item.refurbishedGrade
+        ) {
+          throw new Error(
+            "REFURBISHED_GRADE_REQUIRED"
+          );
+        }
+
+        if (
+          !item.batteryGrade
+        ) {
+          throw new Error(
+            "BATTERY_GRADE_REQUIRED"
+          );
+        }
+      }
+    }
+  );
 
   if (
-    !Number.isInteger(
-      input.quantity
-    ) ||
-    input.quantity < 1 ||
-    input.quantity > 10
+    totalQuantity >
+    50
   ) {
     throw new Error(
-      "INVALID_QUANTITY"
+      "TOTAL_QUANTITY_TOO_HIGH"
     );
   }
 
@@ -932,39 +1169,142 @@ function validateCreateOrderInput(
       "INVALID_DISPLAY_CURRENCY"
     );
   }
+}
 
-  /* =======================================================
-     REFURBISHED CONFIGURATION
-  ======================================================= */
+/* =========================================================
+   NORMALIZE CREATED ORDER ITEM
+========================================================= */
 
-  if (
-    input.condition ===
-      "refurbished"
-  ) {
-    if (
-      !input.variantId
-    ) {
-      throw new Error(
-        "REFURBISHED_VARIANT_REQUIRED"
-      );
-    }
+function normalizeCreatedOrderItem(
+  item:
+    any
+): CreatedOrderItem {
+  return {
+    id:
+      item?.id
+        ? String(
+            item.id
+          )
+        : undefined,
 
-    if (
-      !input.refurbishedGrade
-    ) {
-      throw new Error(
-        "REFURBISHED_GRADE_REQUIRED"
-      );
-    }
+    order_id:
+      item?.order_id
+        ? String(
+            item.order_id
+          )
+        : undefined,
 
-    if (
-      !input.batteryGrade
-    ) {
-      throw new Error(
-        "BATTERY_GRADE_REQUIRED"
-      );
-    }
-  }
+    product_id:
+      String(
+        item
+          ?.product_id ??
+        ""
+      ),
+
+    variant_id:
+      item
+        ?.variant_id
+        ? String(
+            item.variant_id
+          )
+        : null,
+
+    product_name:
+      String(
+        item
+          ?.product_name ??
+        ""
+      ),
+
+    variant_storage:
+      item
+        ?.variant_storage ??
+      item
+        ?.storage ??
+      null,
+
+    variant_color:
+      item
+        ?.variant_color ??
+      item
+        ?.color ??
+      null,
+
+    storage:
+      item
+        ?.storage ??
+      item
+        ?.variant_storage ??
+      null,
+
+    color:
+      item
+        ?.color ??
+      item
+        ?.variant_color ??
+      null,
+
+    condition:
+      item
+        ?.condition ===
+        "refurbished"
+        ? "refurbished"
+        : "new",
+
+    refurbished_grade:
+      normalizeRefurbishedGrade(
+        item
+          ?.refurbished_grade
+      ),
+
+    battery_grade:
+      normalizeBatteryGrade(
+        item
+          ?.battery_grade
+      ),
+
+    quantity:
+      toNumber(
+        item
+          ?.quantity
+      ),
+
+    base_unit_price:
+      toNumber(
+        item
+          ?.base_unit_price
+      ),
+
+    battery_upgrade_amount:
+      toNumber(
+        item
+          ?.battery_upgrade_amount
+      ),
+
+    unit_price:
+      toNumber(
+        item
+          ?.unit_price
+      ),
+
+    line_subtotal:
+      toNumber(
+        item
+          ?.line_subtotal
+      ),
+
+    display_unit_price:
+      toOptionalNumber(
+        item
+          ?.display_unit_price
+      ),
+
+    display_line_subtotal:
+      toOptionalNumber(
+        item
+          ?.display_line_subtotal
+      ),
+  };
 }
 
 /* =========================================================
@@ -998,57 +1338,80 @@ function normalizeCreatedOrder(
 
     quantity:
       toNumber(
-        order.quantity
+        order
+          ?.quantity
       ),
 
     unit_price:
       toNumber(
-        order.unit_price
+        order
+          ?.unit_price
       ),
 
     subtotal:
       toOptionalNumber(
-        order.subtotal
+        order
+          ?.subtotal
       ),
 
     subtotal_amount:
       toOptionalNumber(
-        order.subtotal_amount
+        order
+          ?.subtotal_amount
       ),
 
     shipping_amount:
       toOptionalNumber(
-        order.shipping_amount
+        order
+          ?.shipping_amount
+      ),
+
+    insurance_amount:
+      toOptionalNumber(
+        order
+          ?.insurance_amount
+      ),
+
+    discount_amount:
+      toOptionalNumber(
+        order
+          ?.discount_amount
       ),
 
     total:
       toOptionalNumber(
-        order.total
+        order
+          ?.total
       ),
 
     total_amount:
       toNumber(
-        order.total_amount
+        order
+          ?.total_amount
       ),
 
     display_currency:
       normalizeDisplayCurrency(
-        order.display_currency
+        order
+          ?.display_currency
       ),
 
     display_unit_price:
       toNumber(
-        order.display_unit_price
+        order
+          ?.display_unit_price
       ),
 
     display_total_amount:
       toNumber(
-        order.display_total_amount
+        order
+          ?.display_total_amount
       ),
 
     exchange_rate:
       toNumber(
-        order.exchange_rate
+        order
+          ?.exchange_rate
       ),
   };
 }
@@ -1059,47 +1422,65 @@ function normalizeCreatedOrder(
 
 function normalizeOrderPricing(
   pricing:
-    any
-): OrderPricing {
-  const baseUnitPrice =
-    toOptionalNumber(
-      pricing
-        ?.base_unit_price
-    );
+    any,
 
-  const batteryUpgradeAmount =
-    toOptionalNumber(
-      pricing
-        ?.battery_upgrade_amount
-    );
+  responseItems:
+    CreatedOrderItem[]
+): OrderPricing {
+ const normalizedItems:
+  CreatedOrderItem[] =
+  Array.isArray(
+    pricing?.items
+  )
+    ? pricing.items.map(
+        (
+          item: any
+        ) =>
+          normalizeCreatedOrderItem(
+            item
+          )
+      )
+    : responseItems;
 
   const subtotalAmount =
-    toOptionalNumber(
+    toNumber(
       pricing
         ?.subtotal_amount ??
       pricing
         ?.item_subtotal
     );
 
+    const calculatedQuantity =
+  normalizedItems.reduce(
+    (
+      total:
+        number,
+
+      item:
+        CreatedOrderItem
+    ) =>
+      total +
+      item.quantity,
+    0
+  );
+
   const shippingAmount =
-    toOptionalNumber(
+    toNumber(
       pricing
         ?.shipping_amount
     );
 
-  const displaySubtotalAmount =
-    toOptionalNumber(
-      pricing
-        ?.display_subtotal_amount ??
-      pricing
-        ?.display_subtotal
-    );
+  const totalQuantity =
+  toNumber(
+    pricing
+      ?.quantity ??
+    pricing
+      ?.total_quantity ??
+    calculatedQuantity
+  );
 
-  const displayShippingAmount =
-    toOptionalNumber(
-      pricing
-        ?.display_shipping_amount
-    );
+  const firstItem =
+    normalizedItems[0];
 
   return {
     currency:
@@ -1111,23 +1492,8 @@ function normalizeOrderPricing(
         .trim()
         .toUpperCase(),
 
-    base_unit_price:
-      baseUnitPrice,
-
-    battery_upgrade_amount:
-      batteryUpgradeAmount,
-
-    unit_price:
-      toNumber(
-        pricing
-          ?.unit_price
-      ),
-
-    quantity:
-      toNumber(
-        pricing
-          ?.quantity
-      ),
+    item_subtotal:
+      subtotalAmount,
 
     subtotal_amount:
       subtotalAmount,
@@ -1141,6 +1507,38 @@ function normalizeOrderPricing(
           ?.total_amount
       ),
 
+    quantity:
+      totalQuantity,
+
+    item_count:
+      toNumber(
+        pricing
+          ?.item_count ??
+        normalizedItems.length
+      ),
+
+    base_unit_price:
+      toOptionalNumber(
+        pricing
+          ?.base_unit_price ??
+        firstItem
+          ?.base_unit_price
+      ),
+
+    battery_upgrade_amount:
+      toOptionalNumber(
+        pricing
+          ?.battery_upgrade_amount
+      ),
+
+    unit_price:
+      toNumber(
+        pricing
+          ?.unit_price ??
+        firstItem
+          ?.unit_price
+      ),
+
     display_currency:
       normalizeDisplayCurrency(
         pricing
@@ -1150,14 +1548,24 @@ function normalizeOrderPricing(
     display_unit_price:
       toNumber(
         pricing
+          ?.display_unit_price ??
+        firstItem
           ?.display_unit_price
       ),
 
     display_subtotal_amount:
-      displaySubtotalAmount,
+      toNumber(
+        pricing
+          ?.display_subtotal_amount ??
+        pricing
+          ?.display_subtotal
+      ),
 
     display_shipping_amount:
-      displayShippingAmount,
+      toNumber(
+        pricing
+          ?.display_shipping_amount
+      ),
 
     display_total_amount:
       toNumber(
@@ -1170,6 +1578,9 @@ function normalizeOrderPricing(
         pricing
           ?.exchange_rate
       ),
+
+    items:
+      normalizedItems,
   };
 }
 
@@ -1248,25 +1659,20 @@ export async function createOrder(
   /*
    * SECURITY
    *
-   * No monetary product value is sent from the browser.
+   * No authoritative price is ever sent from the browser.
    *
-   * The browser sends only:
-   * - product ID
-   * - variant ID
-   * - condition
-   * - cosmetic grade
-   * - battery option
-   * - destination information
+   * The server independently calculates:
    *
-   * The Edge Function independently calculates:
-   * - product price
-   * - cosmetic-grade price
-   * - new-battery +€89 surcharge
+   * - product prices
+   * - refurbished grade prices
+   * - battery surcharges
+   * - quantity totals
    * - shipping
    * - subtotal
    * - final total
-   * - display currency conversion
+   * - display conversion
    */
+
   const requestBody = {
     /* CUSTOMER */
 
@@ -1312,36 +1718,40 @@ export async function createOrder(
       normalized.customerNotes ||
       null,
 
-    /* PRODUCT */
+    /* =====================================================
+       MULTI-ITEM CART
+    ===================================================== */
 
-    product_id:
-      normalized.productId,
+    items:
+      normalized.items.map(
+        (
+          item
+        ) => ({
+          product_id:
+            item.productId,
 
-    variant_id:
-      normalized.variantId,
+          variant_id:
+            item.variantId,
 
-    condition:
-      normalized.condition,
+          condition:
+            item.condition,
 
-    /*
-     * Selection identifiers only.
-     *
-     * No cosmetic-grade price or battery price is sent.
-     */
-    refurbished_grade:
-      normalized.condition ===
-        "refurbished"
-        ? normalized.refurbishedGrade
-        : null,
+          refurbished_grade:
+            item.condition ===
+              "refurbished"
+              ? item.refurbishedGrade
+              : null,
 
-    battery_grade:
-      normalized.condition ===
-        "refurbished"
-        ? normalized.batteryGrade
-        : null,
+          battery_grade:
+            item.condition ===
+              "refurbished"
+              ? item.batteryGrade
+              : null,
 
-    quantity:
-      normalized.quantity,
+          quantity:
+            item.quantity,
+        })
+      ),
 
     /* PAYMENT */
 
@@ -1437,10 +1847,6 @@ export async function createOrder(
       }
     );
 
-    /*
-     * Use the machine-readable error code so checkout.tsx
-     * can translate errors into the appropriate customer UI.
-     */
     throw new Error(
       serverCode ||
       "ORDER_CREATE_FAILED"
@@ -1456,8 +1862,7 @@ export async function createOrder(
   }
 
   const response =
-    data as
-      | CreateOrderResult
+    data as any
       | CreateOrderErrorResponse;
 
   if (
@@ -1518,6 +1923,31 @@ export async function createOrder(
     );
   }
 
+  /* =======================================================
+     ITEMS RESPONSE
+  ======================================================= */
+
+  const responseItems:
+    CreatedOrderItem[] =
+    Array.isArray(
+      response.items
+    )
+      ? response.items.map(
+          normalizeCreatedOrderItem
+        )
+      : Array.isArray(
+            response
+              ?.pricing
+              ?.items
+          )
+        ? response
+            .pricing
+            .items
+            .map(
+              normalizeCreatedOrderItem
+            )
+        : [];
+
   const result:
     CreateOrderResult = {
     success:
@@ -1552,7 +1982,8 @@ export async function createOrder(
 
     pricing:
       normalizeOrderPricing(
-        response.pricing
+        response.pricing,
+        responseItems
       ),
 
     payment: {
@@ -1578,6 +2009,9 @@ export async function createOrder(
             .bank
         ),
     },
+
+    items:
+      responseItems,
   };
 
   /* =======================================================
@@ -1603,6 +2037,22 @@ export async function createOrder(
   if (
     result
       .pricing
+      .item_subtotal <=
+    0
+  ) {
+    console.error(
+      "Invalid subtotal returned by create-order:",
+      result
+    );
+
+    throw new Error(
+      "INVALID_ORDER_SUBTOTAL"
+    );
+  }
+
+  if (
+    result
+      .pricing
       .unit_price <=
     0
   ) {
@@ -1618,9 +2068,14 @@ export async function createOrder(
 
   if (
     !Number.isInteger(
-      result.pricing.quantity
+      result
+        .pricing
+        .quantity
     ) ||
-    result.pricing.quantity < 1
+    result
+      .pricing
+      .quantity <
+      1
   ) {
     console.error(
       "Invalid quantity returned by create-order:",
@@ -1682,58 +2137,61 @@ export async function createOrder(
   }
 
   /*
-   * Additional refurbished consistency checks.
+   * Once the new create-order backend is deployed, every
+   * successful order should return order_items.
    */
   if (
-    normalized.condition ===
-      "refurbished"
+    result.items.length >
+    0
   ) {
-    if (
-      result.order
-        .refurbished_grade &&
-      result.order
-        .refurbished_grade !==
-        normalized.refurbishedGrade
+    for (
+      let index = 0;
+      index <
+      result.items.length;
+      index++
     ) {
-      console.error(
-        "Refurbished grade mismatch:",
-        {
-          requested:
-            normalized.refurbishedGrade,
+      const item =
+        result.items[
+          index
+        ];
 
-          returned:
-            result.order
-              .refurbished_grade,
-        }
-      );
+      if (
+        !item.product_id
+      ) {
+        throw new Error(
+          "ORDER_ITEM_PRODUCT_MISSING"
+        );
+      }
 
-      throw new Error(
-        "REFURBISHED_GRADE_MISMATCH"
-      );
-    }
+      if (
+        item.unit_price <=
+        0
+      ) {
+        throw new Error(
+          "INVALID_ORDER_ITEM_PRICE"
+        );
+      }
 
-    if (
-      result.order
-        .battery_grade &&
-      result.order
-        .battery_grade !==
-        normalized.batteryGrade
-    ) {
-      console.error(
-        "Battery grade mismatch:",
-        {
-          requested:
-            normalized.batteryGrade,
+      if (
+        item.line_subtotal <=
+        0
+      ) {
+        throw new Error(
+          "INVALID_ORDER_ITEM_SUBTOTAL"
+        );
+      }
 
-          returned:
-            result.order
-              .battery_grade,
-        }
-      );
-
-      throw new Error(
-        "BATTERY_GRADE_MISMATCH"
-      );
+      if (
+        !Number.isInteger(
+          item.quantity
+        ) ||
+        item.quantity <
+          1
+      ) {
+        throw new Error(
+          "INVALID_ORDER_ITEM_QUANTITY"
+        );
+      }
     }
   }
 
@@ -1848,7 +2306,7 @@ export function getOrderCustomerDisplayTotal(
 }
 
 /* =========================================================
-   SETTLEMENT UNIT PRICE
+   LEGACY / FIRST-LINE UNIT PRICE
 ========================================================= */
 
 export function getOrderDisplayUnitPrice(

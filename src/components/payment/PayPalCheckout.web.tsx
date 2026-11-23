@@ -13,7 +13,7 @@ import {
 import {
     capturePayPalOrder,
     createPayPalOrder,
-    type PayPalCondition,
+    type CreatePayPalOrderItemInput,
     type PayPalDisplayCurrency,
     type PayPalLanguage,
 } from "../../services/paypalService";
@@ -23,20 +23,12 @@ import {
 ========================================================= */
 
 type Props = {
-  /* PRODUCT */
+  /* =======================================================
+     PRODUCTS
+  ======================================================= */
 
-  productId:
-    string;
-
-  variantId?:
-    | string
-    | null;
-
-  condition:
-    PayPalCondition;
-
-  quantity:
-    number;
+  items:
+    CreatePayPalOrderItemInput[];
 
   /* CUSTOMER */
 
@@ -44,7 +36,8 @@ type Props = {
     string;
 
   customerEmail?:
-    string;
+    | string
+    | null;
 
   customerWhatsapp:
     string;
@@ -58,24 +51,30 @@ type Props = {
     string;
 
   city?:
-    string;
+    | string
+    | null;
 
   street?:
-    string;
+    | string
+    | null;
 
   houseNumber?:
-    string;
+    | string
+    | null;
 
   addressLine2?:
-    string;
+    | string
+    | null;
 
   postalCode?:
-    string;
+    | string
+    | null;
 
   /* ORDER */
 
   notes?:
-    string;
+    | string
+    | null;
 
   language:
     PayPalLanguage;
@@ -187,14 +186,16 @@ type PayPalSession = {
         orderId:
           string;
       }>
-  ) => Promise<void>;
+  ) =>
+    Promise<void>;
 };
 
 type PayPalEligibility = {
   isEligible: (
     method:
       string
-  ) => boolean;
+  ) =>
+    boolean;
 };
 
 type PayPalSdkInstance = {
@@ -215,12 +216,14 @@ type PayPalSdkInstance = {
         Promise<void>;
 
       onCancel:
-        () => void;
+        () =>
+          void;
 
       onError: (
         error:
           unknown
-      ) => void;
+      ) =>
+        void;
     }
   ) =>
     Promise<PayPalSession>;
@@ -279,7 +282,9 @@ function loadPayPalSdk() {
           | HTMLScriptElement
           | null;
 
-      if (existing) {
+      if (
+        existing
+      ) {
         if (
           paypalWindow.paypal
         ) {
@@ -417,10 +422,7 @@ function normalizeError(
 
 export default function PayPalCheckout(
   {
-    productId,
-    variantId,
-    condition,
-    quantity,
+    items,
 
     customerName,
     customerEmail,
@@ -457,6 +459,27 @@ export default function PayPalCheckout(
     useRef<
       PayPalSession | null
     >(
+      null
+    );
+
+  /*
+   * Stores the PayPal order created immediately before the
+   * PayPal checkout window opens.
+   *
+   * This gives us the server-calculated order / pricing
+   * context if we need it after approval.
+   */
+  const createdOrderRef =
+    useRef<{
+      orderId:
+        string;
+
+      orderNumber:
+        string;
+
+      paypalOrderId:
+        string;
+    } | null>(
       null
     );
 
@@ -506,6 +529,9 @@ export default function PayPalCheckout(
             null
           );
 
+          createdOrderRef.current =
+            null;
+
           const clientId =
             process.env
               .EXPO_PUBLIC_PAYPAL_CLIENT_ID
@@ -536,8 +562,7 @@ export default function PayPalCheckout(
               PayPalWindow;
 
           if (
-            !paypalWindow
-              .paypal
+            !paypalWindow.paypal
           ) {
             throw new Error(
               "PAYPAL_SDK_NOT_AVAILABLE"
@@ -604,9 +629,22 @@ export default function PayPalCheckout(
             );
           }
 
+          /* =================================================
+             PAYPAL SESSION
+          ================================================= */
+
           const session =
             await sdk
               .createPayPalOneTimePaymentSession({
+                /* ===========================================
+                   APPROVED
+
+                   The PayPal order was already created in
+                   orderPromise below.
+
+                   We only CAPTURE it here.
+                =========================================== */
+
                 onApprove:
                   async ({
                     orderId,
@@ -617,25 +655,117 @@ export default function PayPalCheckout(
                         orderId
                       );
 
+                      if (
+                        !orderId
+                      ) {
+                        throw new Error(
+                          "PAYPAL_ORDER_ID_REQUIRED"
+                        );
+                      }
+
                       const result =
                         await capturePayPalOrder(
                           orderId
                         );
 
-                      if (
+                      console.log(
+                        "PayPal capture result:",
+                        result
+                      );
+
+                      const captureId =
                         result
                           .capture
-                          .status !==
-                        "COMPLETED"
+                          ?.id;
+
+                      if (
+                        !captureId
                       ) {
                         throw new Error(
-                          "PAYPAL_CAPTURE_NOT_COMPLETED"
+                          "PAYPAL_CAPTURE_ID_MISSING"
                         );
                       }
 
-                      setErrorMessage(
-                        null
-                      );
+                      const amount =
+                        result
+                          .capture
+                          ?.amount ??
+                        result
+                          .pricing
+                          ?.total_amount ??
+                        null;
+
+                      const currency =
+                        result
+                          .capture
+                          ?.currency ??
+                        result
+                          .pricing
+                          ?.currency ??
+                        null;
+
+                      const subtotal =
+                        result
+                          .pricing
+                          ?.subtotal_amount ??
+                        result
+                          .pricing
+                          ?.item_subtotal ??
+                        null;
+
+                      const shipping =
+                        result
+                          .pricing
+                          ?.shipping_amount ??
+                        null;
+
+                      const total =
+                        result
+                          .pricing
+                          ?.total_amount ??
+                        result
+                          .capture
+                          ?.amount ??
+                        null;
+
+                      const resultDisplayCurrency =
+                        result
+                          .pricing
+                          ?.display_currency ??
+                        null;
+
+                      const displayTotal =
+                        result
+                          .pricing
+                          ?.display_total_amount ??
+                        null;
+
+                      const exchangeRate =
+                        result
+                          .pricing
+                          ?.exchange_rate ??
+                        null;
+
+                      /*
+                       * Prefer the values returned by the
+                       * capture function. Fall back to the
+                       * order created before PayPal opened.
+                       */
+                      const orderIdResult =
+                        result
+                          .order_id ??
+                        createdOrderRef
+                          .current
+                          ?.orderId ??
+                        null;
+
+                      const orderNumberResult =
+                        result
+                          .order_number ??
+                        createdOrderRef
+                          .current
+                          ?.orderNumber ??
+                        null;
 
                       onSuccess({
                         paypalOrderId:
@@ -643,30 +773,17 @@ export default function PayPalCheckout(
                             .paypal_order_id ??
                           orderId,
 
-                        captureId:
-                          result
-                            .capture
-                            .id,
+                        captureId,
 
-                        amount:
-                          result
-                            .capture
-                            .amount,
+                        amount,
 
-                        currency:
-                          result
-                            .capture
-                            .currency,
+                        currency,
 
                         orderId:
-                          result
-                            .order_id ??
-                          null,
+                          orderIdResult,
 
                         orderNumber:
-                          result
-                            .order_number ??
-                          null,
+                          orderNumberResult,
 
                         paymentStatus:
                           result
@@ -679,53 +796,28 @@ export default function PayPalCheckout(
                           null,
 
                         emailSent:
-                          result
-                            .email_sent ===
-                          true,
+                          Boolean(
+                            result
+                              .email_sent
+                          ),
 
                         warning:
                           result
                             .warning ??
                           null,
 
-                        subtotal:
-                          result
-                            .pricing
-                            ?.subtotal_amount ??
-                          null,
+                        subtotal,
 
-                        shipping:
-                          result
-                            .pricing
-                            ?.shipping_amount ??
-                          null,
+                        shipping,
 
-                        total:
-                          result
-                            .pricing
-                            ?.total_amount ??
-                          result
-                            .capture
-                            .amount ??
-                          null,
+                        total,
 
                         displayCurrency:
-                          result
-                            .pricing
-                            ?.display_currency ??
-                          null,
+                          resultDisplayCurrency,
 
-                        displayTotal:
-                          result
-                            .pricing
-                            ?.display_total_amount ??
-                          null,
+                        displayTotal,
 
-                        exchangeRate:
-                          result
-                            .pricing
-                            ?.exchange_rate ??
-                          null,
+                        exchangeRate,
                       });
                     } catch (
                       error
@@ -752,6 +844,10 @@ export default function PayPalCheckout(
                     }
                   },
 
+                /* ===========================================
+                   CANCEL
+                =========================================== */
+
                 onCancel:
                   () => {
                     console.log(
@@ -760,6 +856,10 @@ export default function PayPalCheckout(
 
                     onCancel?.();
                   },
+
+                /* ===========================================
+                   SDK ERROR
+                =========================================== */
 
                 onError:
                   (
@@ -796,6 +896,10 @@ export default function PayPalCheckout(
           sessionRef.current =
             session;
 
+          /* =================================================
+             BUTTON CONTAINER
+          ================================================= */
+
           const container =
             containerRef
               .current as
@@ -826,6 +930,10 @@ export default function PayPalCheckout(
           button.style.width =
             "100%";
 
+          /* =================================================
+             BUTTON CLICK
+          ================================================= */
+
           clickHandler =
             () => {
               if (
@@ -855,8 +963,16 @@ export default function PayPalCheckout(
                 return;
               }
 
+              /*
+               * PayPal SDK expects a promise that resolves
+               * with the PayPal order ID.
+               */
               const orderPromise =
                 (async () => {
+                  /* =========================================
+                     PAGE VALIDATION
+                  ========================================= */
+
                   if (
                     onBeforeStart
                   ) {
@@ -871,6 +987,10 @@ export default function PayPalCheckout(
                       );
                     }
                   }
+
+                  /* =========================================
+                     CUSTOMER
+                  ========================================= */
 
                   const cleanCustomerName =
                     customerName
@@ -956,27 +1076,56 @@ export default function PayPalCheckout(
                     );
                   }
 
+                  /* =========================================
+                     ITEMS
+                  ========================================= */
+
+                  if (
+                    !Array.isArray(
+                      items
+                    ) ||
+                    items.length ===
+                      0
+                  ) {
+                    throw new Error(
+                      "ITEMS_REQUIRED"
+                    );
+                  }
+
                   console.log(
-                    "PayPal: creating POKAPOK + PayPal order..."
+                    "PayPal: creating POKAPOK + PayPal order...",
+                    {
+                      itemCount:
+                        items.length,
+                    }
                   );
+
+                  /* =========================================
+                     CREATE SERVER ORDER
+
+                     Server calculates:
+                     - all item prices
+                     - quantities
+                     - battery upgrades
+                     - subtotal
+                     - shipping
+                     - total
+                     - CVE/EUR display values
+                     - exchange rate
+
+                     Browser does NOT supply those values.
+                  ========================================= */
 
                   const created =
                     await createPayPalOrder({
-                      productId,
-
-                      variantId:
-                        variantId ??
-                        null,
-
-                      condition,
-
-                      quantity,
+                      items,
 
                       customerName:
                         cleanCustomerName,
 
                       customerEmail:
-                        cleanCustomerEmail,
+                        cleanCustomerEmail ||
+                        null,
 
                       customerWhatsapp:
                         cleanCustomerWhatsapp,
@@ -988,22 +1137,28 @@ export default function PayPalCheckout(
                         cleanStateRegion,
 
                       city:
-                        cleanCity,
+                        cleanCity ||
+                        null,
 
                       street:
-                        cleanStreet,
+                        cleanStreet ||
+                        null,
 
                       houseNumber:
-                        cleanHouseNumber,
+                        cleanHouseNumber ||
+                        null,
 
                       addressLine2:
-                        cleanAddressLine2,
+                        cleanAddressLine2 ||
+                        null,
 
                       postalCode:
-                        cleanPostalCode,
+                        cleanPostalCode ||
+                        null,
 
                       notes:
-                        cleanNotes,
+                        cleanNotes ||
+                        null,
 
                       language,
 
@@ -1011,23 +1166,70 @@ export default function PayPalCheckout(
                     });
 
                   console.log(
-                    "POKAPOK order created:",
+                    "POKAPOK PayPal order created:",
                     {
                       orderId:
-                        created.order_id,
+                        created
+                          .order_id,
 
                       orderNumber:
-                        created.order_number,
+                        created
+                          .order_number,
 
                       paypalOrderId:
-                        created.paypal_order_id,
+                        created
+                          .paypal_order_id,
+
+                      itemCount:
+                        created
+                          .pricing
+                          ?.item_count,
+
+                      settlementTotal:
+                        created
+                          .pricing
+                          ?.total_amount,
+
+                      settlementCurrency:
+                        created
+                          .pricing
+                          ?.currency,
+
+                      displayTotal:
+                        created
+                          .pricing
+                          ?.display_total_amount,
+
+                      displayCurrency:
+                        created
+                          .pricing
+                          ?.display_currency,
+
+                      exchangeRate:
+                        created
+                          .pricing
+                          ?.exchange_rate,
                     }
                   );
 
-                  console.log(
-                    "PayPal server pricing:",
-                    created.pricing
-                  );
+                  /*
+                   * Keep a small reference for use after the
+                   * PayPal approval/capture.
+                   */
+                  createdOrderRef.current =
+                    {
+                      orderId:
+                        created
+                          .order_id,
+
+                      orderNumber:
+                        created
+                          .order_number,
+
+                      paypalOrderId:
+                        created
+                          .paypal_order_id,
+                    };
 
                   return {
                     orderId:
@@ -1056,6 +1258,11 @@ export default function PayPalCheckout(
                         "PAYPAL_START_FAILED"
                       );
 
+                    /*
+                     * Validation errors are already shown by
+                     * checkout.tsx, so don't show an extra
+                     * PayPal error box.
+                     */
                     if (
                       normalized
                         .message ===
@@ -1167,14 +1374,14 @@ export default function PayPalCheckout(
 
         sessionRef.current =
           null;
+
+        createdOrderRef.current =
+          null;
       };
     },
 
     [
-      productId,
-      variantId,
-      condition,
-      quantity,
+      items,
 
       customerName,
       customerEmail,
@@ -1213,7 +1420,10 @@ export default function PayPalCheckout(
             styles.status
           }
         >
-          A carregar PayPal...
+          {language ===
+          "pt"
+            ? "A carregar PayPal..."
+            : "Loading PayPal..."}
         </Text>
       ) : null}
 
@@ -1240,7 +1450,10 @@ export default function PayPalCheckout(
               styles.error
             }
           >
-            Não foi possível carregar o PayPal.
+            {language ===
+            "pt"
+              ? "Não foi possível carregar ou concluir o pagamento PayPal."
+              : "We could not load or complete the PayPal payment."}
           </Text>
 
           <Text

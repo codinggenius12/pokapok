@@ -16,23 +16,37 @@ import { useCart } from "../src/context/CartContext";
 import { useCurrency } from "../src/context/CurrencyStore";
 import { useLanguage } from "../src/context/LanguageContext";
 import { phones } from "../src/data/phones";
+
 import {
   createOrder,
   formatOrderPrice,
   type CreateOrderResult,
 } from "../src/services/orderService";
+
+import type {
+  CreatePayPalOrderItemInput,
+} from "../src/services/paypalService";
+
+import {
+  createStripeCheckout,
+  redirectToStripeCheckout,
+} from "../src/services/stripeService";
+
 import {
   calculateMonthlyPrice,
   calculateUnitPrice,
 } from "../src/services/pricingService";
+
 import {
   getColorImage,
   getPublicProductById,
   getPublicProductBySlug,
   getPublicProductVariants,
 } from "../src/services/productService";
+
 import { colors } from "../src/theme/colors";
 import type { PaymentMode, Phone } from "../src/types/phone";
+
 import {
   localizePhoneColor,
   localizePhoneCondition,
@@ -43,42 +57,27 @@ import {
 ========================================================= */
 
 type CheckoutPaymentMethod =
-  | "card"
+  | "stripe"
   | "paypal"
   | "bank_transfer"
   | "upay";
 
 type PayPalCheckoutSuccessResult = {
   paypalOrderId: string;
-
   captureId: string;
-
   amount: number | null;
-
   currency: string | null;
-
   orderId: string | null;
-
   orderNumber: string | null;
-
   paymentStatus: string | null;
-
   orderStatus: string | null;
-
   emailSent: boolean;
-
   warning: string | null;
-
   subtotal: number | null;
-
   shipping: number | null;
-
   total: number | null;
-
   displayCurrency: string | null;
-
   displayTotal: number | null;
-
   exchangeRate: number | null;
 };
 
@@ -299,9 +298,7 @@ function findIndexByName<T>(
   return index >= 0 ? index : 0;
 }
 
-function getShippingPrice(
-  country: string
-) {
+function getShippingPrice(country: string) {
   if (!country) {
     return 0;
   }
@@ -341,8 +338,7 @@ export default function CheckoutScreen() {
     formatPrice,
   } = useCurrency(language);
 
-  const { width } =
-    useWindowDimensions();
+  const { width } = useWindowDimensions();
 
   const isMobile =
     width < 720;
@@ -536,9 +532,6 @@ export default function CheckoutScreen() {
           perMonth:
             "/mês",
 
-          oneTimeTotal:
-            "Total a pagar",
-
           monthlyTotal:
             "Total mensal",
 
@@ -564,11 +557,20 @@ export default function CheckoutScreen() {
           paymentDescription:
             "Selecione o seu método de pagamento preferido.",
 
-          card:
-            "Visa / Mastercard",
+          stripe:
+            "Cartão, Klarna ou MB WAY",
 
-          cardDescription:
-            "Pagamento com cartão de débito ou crédito",
+          stripeDescription:
+            "Pagamento seguro através da Stripe. As opções disponíveis dependem do país e da elegibilidade.",
+
+          stripeRedirecting:
+            "A abrir pagamento seguro...",
+
+          stripeFailed:
+            "Não foi possível iniciar o pagamento através da Stripe.",
+
+          continueToPayment:
+            "Continuar para pagamento",
 
           paypal:
             "PayPal",
@@ -621,11 +623,8 @@ export default function CheckoutScreen() {
           bankTransferOnly:
             "Este método de pagamento ainda não está disponível. Selecione transferência bancária.",
 
-          singleItemOnly:
-            "Por enquanto, a transferência bancária suporta uma encomenda de cada vez.",
-
           purchaseOnly:
-            "A transferência bancária está atualmente disponível apenas para compras diretas.",
+            "O pagamento online está atualmente disponível apenas para compras diretas.",
 
           missingDatabaseProduct:
             "Não foi possível identificar este produto na base de dados. Volte ao produto e adicione-o novamente ao carrinho.",
@@ -682,7 +681,7 @@ export default function CheckoutScreen() {
             "Moeda da transferência",
 
           paymentCurrencyNotice:
-            "Pode visualizar os preços em CVE ou EUR. As transferências bancárias desta versão do checkout são liquidadas em EUR; o servidor calcula o valor final com segurança.",
+            "Pode visualizar os preços em CVE ou EUR. Os pagamentos online e transferências são liquidados em EUR; o servidor calcula o valor final com segurança.",
         }
       : {
           backCatalog:
@@ -867,9 +866,6 @@ export default function CheckoutScreen() {
           perMonth:
             "/month",
 
-          oneTimeTotal:
-            "Total to pay",
-
           monthlyTotal:
             "Monthly total",
 
@@ -895,11 +891,20 @@ export default function CheckoutScreen() {
           paymentDescription:
             "Select your preferred payment method.",
 
-          card:
-            "Visa / Mastercard",
+          stripe:
+            "Card, Klarna or MB WAY",
 
-          cardDescription:
-            "Pay using a debit or credit card",
+          stripeDescription:
+            "Secure payment through Stripe. Available options depend on your country and eligibility.",
+
+          stripeRedirecting:
+            "Opening secure payment...",
+
+          stripeFailed:
+            "We could not start the Stripe payment.",
+
+          continueToPayment:
+            "Continue to payment",
 
           paypal:
             "PayPal",
@@ -952,11 +957,8 @@ export default function CheckoutScreen() {
           bankTransferOnly:
             "This payment method is not available yet. Select bank transfer.",
 
-          singleItemOnly:
-            "Bank transfer currently supports one order item at a time.",
-
           purchaseOnly:
-            "Bank transfer is currently available for direct purchases only.",
+            "Online payment is currently available for direct purchases only.",
 
           missingDatabaseProduct:
             "We could not identify this product in the database. Return to the product and add it to your cart again.",
@@ -1013,7 +1015,7 @@ export default function CheckoutScreen() {
             "Transfer currency",
 
           paymentCurrencyNotice:
-            "You can view prices in CVE or EUR. Bank transfers in this checkout are settled in EUR; the server calculates the final amount securely.",
+            "You can view prices in CVE or EUR. Online payments and bank transfers are settled in EUR; the server securely calculates the final amount.",
         };
 
   /* =======================================================
@@ -1621,7 +1623,7 @@ export default function CheckoutScreen() {
       : text.paymentTitle;
 
   /* =======================================================
-     PAYPAL CONFIGURATION
+     PAYPAL DIRECT PRODUCT CONFIGURATION
   ======================================================= */
 
   const paypalProductId =
@@ -1662,12 +1664,6 @@ export default function CheckoutScreen() {
       ?.quantity ??
     1;
 
-  /*
-   * Refurbished selections are stored on the CartItem.
-   *
-   * They describe which option the customer selected.
-   * The browser does NOT decide their authoritative price.
-   */
   const paypalRefurbishedGrade =
     paypalCondition ===
       "refurbished"
@@ -1683,6 +1679,108 @@ export default function CheckoutScreen() {
           ?.batteryGrade ??
         null
       : null;
+
+  /* =======================================================
+     PAYPAL MULTI-ITEM CART
+
+     Browser sends only selections.
+     The PayPal backend recalculates all prices.
+  ======================================================= */
+
+  const paypalItems =
+    useMemo<
+      CreatePayPalOrderItemInput[]
+    >(
+      () => {
+        if (
+          cartHasItems
+        ) {
+          return items.map(
+            (
+              item
+            ) => {
+              const condition:
+                | "new"
+                | "refurbished" =
+                item.phone
+                  .condition ===
+                "refurbished"
+                  ? "refurbished"
+                  : "new";
+
+              return {
+                productId:
+                  item.productId ??
+                  "",
+
+                variantId:
+                  item.variantId ??
+                  null,
+
+                condition,
+
+                quantity:
+                  item.quantity,
+
+                refurbishedGrade:
+                  condition ===
+                    "refurbished"
+                    ? item
+                        .refurbishedGrade ??
+                      null
+                    : null,
+
+                batteryGrade:
+                  condition ===
+                    "refurbished"
+                    ? item
+                        .batteryGrade ??
+                      null
+                    : null,
+              };
+            }
+          );
+        }
+
+        if (
+          !paypalProductId
+        ) {
+          return [];
+        }
+
+        return [
+          {
+            productId:
+              paypalProductId,
+
+            variantId:
+              paypalVariantId,
+
+            condition:
+              paypalCondition,
+
+            quantity:
+              paypalQuantity,
+
+            refurbishedGrade:
+              paypalRefurbishedGrade,
+
+            batteryGrade:
+              paypalBatteryGrade,
+          },
+        ];
+      },
+      [
+        cartHasItems,
+        items,
+        paypalProductId,
+        paypalVariantId,
+        paypalCondition,
+        paypalQuantity,
+        paypalRefurbishedGrade,
+        paypalBatteryGrade,
+      ]
+    );
 
   /* =======================================================
      COUNTRY DISPLAY
@@ -1728,8 +1826,7 @@ export default function CheckoutScreen() {
     method: CheckoutPaymentMethod
   ) {
     if (
-      method === "upay" ||
-      method === "card"
+      method === "upay"
     ) {
       return;
     }
@@ -1744,7 +1841,7 @@ export default function CheckoutScreen() {
   }
 
   /* =======================================================
-     PAYPAL VALIDATION
+     CUSTOMER VALIDATION
   ======================================================= */
 
   function validateCustomerDetails() {
@@ -1791,29 +1888,77 @@ export default function CheckoutScreen() {
       return false;
     }
 
-    if (
-      cartHasItems &&
-      items.length !== 1
-    ) {
-      alert(
-        text.singleItemOnly
-      );
+    /* =====================================================
+       CART VALIDATION
+    ===================================================== */
 
-      return false;
+    if (
+      cartHasItems
+    ) {
+      const hasUnsupportedPaymentMode =
+        items.some(
+          (item) =>
+            item.paymentMode !==
+            "buy"
+        );
+
+      if (
+        hasUnsupportedPaymentMode
+      ) {
+        alert(
+          text.purchaseOnly
+        );
+
+        return false;
+      }
+
+      const hasMissingProduct =
+        items.some(
+          (item) =>
+            !item.productId
+        );
+
+      if (
+        hasMissingProduct
+      ) {
+        alert(
+          text.missingDatabaseProduct
+        );
+
+        return false;
+      }
+
+      const invalidRefurbishedItem =
+        items.some(
+          (item) =>
+            item.phone.condition ===
+              "refurbished" &&
+            (
+              !item.variantId ||
+              !item.refurbishedGrade ||
+              !item.batteryGrade
+            )
+        );
+
+      if (
+        invalidRefurbishedItem
+      ) {
+        alert(
+          text.missingRefurbishedConfiguration
+        );
+
+        return false;
+      }
+
+      return true;
     }
 
-    const orderItem =
-      cartHasItems
-        ? items[0]
-        : null;
-
-    const currentPaymentMode =
-      orderItem
-        ?.paymentMode ??
-      paymentMode;
+    /* =====================================================
+       DIRECT PRODUCT VALIDATION
+    ===================================================== */
 
     if (
-      currentPaymentMode !==
+      paymentMode !==
       "buy"
     ) {
       alert(
@@ -1833,17 +1978,11 @@ export default function CheckoutScreen() {
       return false;
     }
 
-    /*
-     * Old cart items created before the refurbished-option
-     * update do not contain these values.
-     *
-     * They must be re-added from the product page instead
-     * of guessing a grade or battery choice.
-     */
     if (
       paypalCondition ===
         "refurbished" &&
       (
+        !paypalVariantId ||
         !paypalRefurbishedGrade ||
         !paypalBatteryGrade
       )
@@ -1859,7 +1998,388 @@ export default function CheckoutScreen() {
   }
 
   /* =======================================================
-     SUBMIT REQUEST
+     STRIPE CHECKOUT
+  ======================================================= */
+
+  async function startStripeCheckout() {
+    if (
+      !validateCustomerDetails()
+    ) {
+      return;
+    }
+
+    if (
+      !selectedPhone ||
+      !selectedColor ||
+      !selectedStorage
+    ) {
+      return;
+    }
+
+    setSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const stripeItems =
+        cartHasItems
+          ? items.map(
+              (item) => {
+                if (
+                  !item.productId
+                ) {
+                  throw new Error(
+                    "PRODUCT_REQUIRED"
+                  );
+                }
+
+                const condition:
+                  | "new"
+                  | "refurbished" =
+                  item.phone
+                    .condition ===
+                  "refurbished"
+                    ? "refurbished"
+                    : "new";
+
+                const refurbishedGrade =
+                  condition ===
+                    "refurbished"
+                    ? item.refurbishedGrade ??
+                      null
+                    : null;
+
+                const batteryGrade =
+                  condition ===
+                    "refurbished"
+                    ? item.batteryGrade ??
+                      null
+                    : null;
+
+                if (
+                  condition ===
+                    "refurbished" &&
+                  (
+                    !refurbishedGrade ||
+                    !batteryGrade
+                  )
+                ) {
+                  throw new Error(
+                    "REFURBISHED_CONFIGURATION_REQUIRED"
+                  );
+                }
+
+                if (
+                  condition ===
+                    "refurbished" &&
+                  !item.variantId
+                ) {
+                  throw new Error(
+                    "REFURBISHED_VARIANT_REQUIRED"
+                  );
+                }
+
+                return {
+                  productId:
+                    item.productId,
+
+                  variantId:
+                    item.variantId ??
+                    null,
+
+                  condition,
+
+                  quantity:
+                    item.quantity,
+
+                  refurbishedGrade,
+
+                  batteryGrade,
+                };
+              }
+            )
+          : [];
+
+      if (
+        stripeItems.length ===
+        0
+      ) {
+        let productId =
+          productIdParam ??
+          null;
+
+        let variantId =
+          variantIdParam ??
+          null;
+
+        if (
+          phoneSlug &&
+          (
+            !productId ||
+            !variantId
+          )
+        ) {
+          const liveProduct =
+            await getPublicProductBySlug(
+              phoneSlug
+            );
+
+          if (
+            liveProduct
+          ) {
+            if (
+              !productId
+            ) {
+              productId =
+                liveProduct.id;
+            }
+
+            if (
+              !variantId
+            ) {
+              const liveVariants =
+                await getPublicProductVariants(
+                  liveProduct.id
+                );
+
+              const wantedStorage =
+                selectedStorage.label
+                  .split(" · ")[0]
+                  .trim()
+                  .toLowerCase();
+
+              const wantedColor =
+                selectedColor.name
+                  .trim()
+                  .toLowerCase();
+
+              const matchedVariant =
+                liveVariants.find(
+                  (variant) =>
+                    variant.storage
+                      .trim()
+                      .toLowerCase() ===
+                      wantedStorage &&
+                    variant.color
+                      .trim()
+                      .toLowerCase() ===
+                      wantedColor
+                );
+
+              variantId =
+                matchedVariant
+                  ?.id ??
+                null;
+            }
+          }
+        }
+
+        if (
+          !productId
+        ) {
+          throw new Error(
+            "PRODUCT_REQUIRED"
+          );
+        }
+
+        const requestedCondition:
+          | "new"
+          | "refurbished" =
+          (
+            conditionParam ===
+              "refurbished"
+              ? "refurbished"
+              : conditionParam ===
+                  "new"
+                ? "new"
+                : selectedPhone
+                    .condition
+          ) ===
+          "refurbished"
+            ? "refurbished"
+            : "new";
+
+        const requestedRefurbishedGrade =
+          requestedCondition ===
+            "refurbished"
+            ? selectedCartItem
+                ?.refurbishedGrade ??
+              null
+            : null;
+
+        const requestedBatteryGrade =
+          requestedCondition ===
+            "refurbished"
+            ? selectedCartItem
+                ?.batteryGrade ??
+              null
+            : null;
+
+        if (
+          requestedCondition ===
+            "refurbished" &&
+          (
+            !requestedRefurbishedGrade ||
+            !requestedBatteryGrade
+          )
+        ) {
+          throw new Error(
+            "REFURBISHED_CONFIGURATION_REQUIRED"
+          );
+        }
+
+        if (
+          requestedCondition ===
+            "refurbished" &&
+          !variantId
+        ) {
+          throw new Error(
+            "REFURBISHED_VARIANT_REQUIRED"
+          );
+        }
+
+        stripeItems.push({
+          productId,
+
+          variantId,
+
+          condition:
+            requestedCondition,
+
+          quantity:
+            1,
+
+          refurbishedGrade:
+            requestedRefurbishedGrade,
+
+          batteryGrade:
+            requestedBatteryGrade,
+        });
+      }
+
+      const result =
+        await createStripeCheckout({
+          items:
+            stripeItems,
+
+          customerName:
+            customer.name.trim(),
+
+          customerEmail:
+            customer.email
+              .trim()
+              .toLowerCase() ||
+            null,
+
+          customerWhatsapp:
+            customer.whatsapp.trim(),
+
+          country:
+            customer.country.trim(),
+
+          stateRegion:
+            customer.stateRegion.trim(),
+
+          city:
+            customer.city.trim() ||
+            null,
+
+          street:
+            customer.street.trim() ||
+            null,
+
+          houseNumber:
+            customer.houseNumber.trim() ||
+            null,
+
+          addressLine2:
+            customer.addressLine2.trim() ||
+            null,
+
+          postalCode:
+            customer.postalCode.trim() ||
+            null,
+
+          notes:
+            customer.notes.trim() ||
+            null,
+
+          language,
+
+          displayCurrency:
+            currency,
+        });
+
+      console.log(
+        "POKAPOK STRIPE CHECKOUT CREATED:",
+        result
+      );
+
+      if (
+        !result.checkout_url
+      ) {
+        throw new Error(
+          "STRIPE_CHECKOUT_URL_MISSING"
+        );
+      }
+
+      redirectToStripeCheckout(
+        result.checkout_url
+      );
+    } catch (
+      error
+    ) {
+      console.error(
+        "Stripe checkout error:",
+        error
+      );
+
+      const errorCode =
+        error instanceof Error
+          ? error.message
+          : "STRIPE_CHECKOUT_FAILED";
+
+      let message =
+        text.stripeFailed;
+
+      if (
+        errorCode ===
+        "PRODUCT_REQUIRED"
+      ) {
+        message =
+          text.missingDatabaseProduct;
+      }
+
+      if (
+        errorCode ===
+          "REFURBISHED_CONFIGURATION_REQUIRED" ||
+        errorCode ===
+          "REFURBISHED_GRADE_REQUIRED" ||
+        errorCode ===
+          "BATTERY_GRADE_REQUIRED" ||
+        errorCode ===
+          "REFURBISHED_VARIANT_REQUIRED"
+      ) {
+        message =
+          text.missingRefurbishedConfiguration;
+      }
+
+      const completeMessage =
+        `${message} (${errorCode})`;
+
+      setSubmitError(
+        completeMessage
+      );
+
+      alert(
+        completeMessage
+      );
+
+      setSubmitting(false);
+    }
+  }
+
+  /* =======================================================
+     BANK TRANSFER SUBMIT
   ======================================================= */
 
   async function submitRequest() {
@@ -1918,29 +2438,29 @@ export default function CheckoutScreen() {
     }
 
     if (
-      cartHasItems &&
-      items.length !== 1
-    ) {
-      alert(
-        text.singleItemOnly
-      );
-
-      return;
-    }
-
-    const orderItem =
       cartHasItems
-        ? items[0]
-        : null;
+    ) {
+      const hasUnsupportedPaymentMode =
+        items.some(
+          (
+            item
+          ) =>
+            item.paymentMode !==
+            "buy"
+        );
 
-    const currentPaymentMode =
-      orderItem
-        ?.paymentMode ??
-      paymentMode;
+      if (
+        hasUnsupportedPaymentMode
+      ) {
+        alert(
+          text.purchaseOnly
+        );
 
-    if (
-      currentPaymentMode !==
-      "buy"
+        return;
+      }
+    } else if (
+      paymentMode !==
+        "buy"
     ) {
       alert(
         text.purchaseOnly
@@ -1953,150 +2473,244 @@ export default function CheckoutScreen() {
     setSubmitError(null);
 
     try {
-      let productId =
-        orderItem
-          ?.productId ??
-        productIdParam ??
-        null;
+      const bankTransferItems =
+        cartHasItems
+          ? items.map(
+              (
+                item
+              ) => {
+                if (
+                  !item.productId
+                ) {
+                  throw new Error(
+                    "PRODUCT_REQUIRED"
+                  );
+                }
 
-      let variantId =
-        orderItem
-          ?.variantId ??
-        variantIdParam ??
-        null;
+                const condition:
+                  | "new"
+                  | "refurbished" =
+                  item.phone
+                    .condition ===
+                  "refurbished"
+                    ? "refurbished"
+                    : "new";
+
+                const refurbishedGrade =
+                  condition ===
+                    "refurbished"
+                    ? item.refurbishedGrade ??
+                      null
+                    : null;
+
+                const batteryGrade =
+                  condition ===
+                    "refurbished"
+                    ? item.batteryGrade ??
+                      null
+                    : null;
+
+                if (
+                  condition ===
+                    "refurbished" &&
+                  (
+                    !refurbishedGrade ||
+                    !batteryGrade
+                  )
+                ) {
+                  throw new Error(
+                    "REFURBISHED_CONFIGURATION_REQUIRED"
+                  );
+                }
+
+                if (
+                  condition ===
+                    "refurbished" &&
+                  !item.variantId
+                ) {
+                  throw new Error(
+                    "REFURBISHED_VARIANT_REQUIRED"
+                  );
+                }
+
+                return {
+                  productId:
+                    item.productId,
+
+                  variantId:
+                    item.variantId ??
+                    null,
+
+                  condition,
+
+                  refurbishedGrade,
+
+                  batteryGrade,
+
+                  quantity:
+                    item.quantity,
+                };
+              }
+            )
+          : [];
 
       if (
-        phoneSlug &&
-        (
-          !productId ||
-          !variantId
-        )
+        bankTransferItems.length ===
+          0
       ) {
-        const liveProduct =
-          await getPublicProductBySlug(
-            phoneSlug
-          );
+        let productId =
+          productIdParam ??
+          null;
 
-        if (liveProduct) {
-          if (!productId) {
-            productId =
-              liveProduct.id;
-          }
+        let variantId =
+          variantIdParam ??
+          null;
 
-          if (!variantId) {
-            const liveVariants =
-              await getPublicProductVariants(
-                liveProduct.id
-              );
+        if (
+          phoneSlug &&
+          (
+            !productId ||
+            !variantId
+          )
+        ) {
+          const liveProduct =
+            await getPublicProductBySlug(
+              phoneSlug
+            );
 
-            const wantedStorage =
-              selectedStorage.label
-                .trim()
-                .toLowerCase();
+          if (
+            liveProduct
+          ) {
+            if (
+              !productId
+            ) {
+              productId =
+                liveProduct.id;
+            }
 
-            const wantedColor =
-              selectedColor.name
-                .trim()
-                .toLowerCase();
+            if (
+              !variantId
+            ) {
+              const liveVariants =
+                await getPublicProductVariants(
+                  liveProduct.id
+                );
 
-            const matchedVariant =
-              liveVariants.find(
-                (variant) =>
-                  variant.storage
-                    .trim()
-                    .toLowerCase() ===
-                    wantedStorage &&
-                  variant.color
-                    .trim()
-                    .toLowerCase() ===
-                    wantedColor
-              );
+              const wantedStorage =
+                selectedStorage.label
+                  .split(" · ")[0]
+                  .trim()
+                  .toLowerCase();
 
-            variantId =
-              matchedVariant
-                ?.id ??
-              null;
+              const wantedColor =
+                selectedColor.name
+                  .trim()
+                  .toLowerCase();
+
+              const matchedVariant =
+                liveVariants.find(
+                  (
+                    variant
+                  ) =>
+                    variant.storage
+                      .trim()
+                      .toLowerCase() ===
+                      wantedStorage &&
+                    variant.color
+                      .trim()
+                      .toLowerCase() ===
+                      wantedColor
+                );
+
+              variantId =
+                matchedVariant
+                  ?.id ??
+                null;
+            }
           }
         }
-      }
 
-      if (!productId) {
-        throw new Error(
-          "PRODUCT_REQUIRED"
-        );
-      }
+        if (
+          !productId
+        ) {
+          throw new Error(
+            "PRODUCT_REQUIRED"
+          );
+        }
 
-      const requestedCondition =
-        orderItem
-          ?.phone.condition ??
-        (conditionParam ===
+        const requestedCondition:
+          | "new"
+          | "refurbished" =
+          (
+            conditionParam ===
+              "refurbished"
+              ? "refurbished"
+              : conditionParam ===
+                  "new"
+                ? "new"
+                : selectedPhone
+                    .condition
+          ) ===
           "refurbished"
-          ? "refurbished"
-          : conditionParam ===
-              "new"
-            ? "new"
-            : selectedPhone.condition);
+            ? "refurbished"
+            : "new";
 
-      /* ===================================================
-         BANK REFURBISHED CONFIGURATION
+        const requestedRefurbishedGrade =
+          requestedCondition ===
+            "refurbished"
+            ? selectedCartItem
+                ?.refurbishedGrade ??
+              null
+            : null;
 
-         The browser sends only which options were selected.
+        const requestedBatteryGrade =
+          requestedCondition ===
+            "refurbished"
+            ? selectedCartItem
+                ?.batteryGrade ??
+              null
+            : null;
 
-         It does NOT send:
-         - cosmetic grade price
-         - battery surcharge
-         - shipping price
-         - authoritative total
+        if (
+          requestedCondition ===
+            "refurbished" &&
+          (
+            !requestedRefurbishedGrade ||
+            !requestedBatteryGrade
+          )
+        ) {
+          throw new Error(
+            "REFURBISHED_CONFIGURATION_REQUIRED"
+          );
+        }
 
-         create-order will calculate all prices again on the
-         server.
-      =================================================== */
+        if (
+          requestedCondition ===
+            "refurbished" &&
+          !variantId
+        ) {
+          throw new Error(
+            "REFURBISHED_VARIANT_REQUIRED"
+          );
+        }
 
-      const requestedRefurbishedGrade =
-        requestedCondition ===
-          "refurbished"
-          ? orderItem
-              ?.refurbishedGrade ??
-            null
-          : null;
+        bankTransferItems.push({
+          productId,
 
-      const requestedBatteryGrade =
-        requestedCondition ===
-          "refurbished"
-          ? orderItem
-              ?.batteryGrade ??
-            null
-          : null;
+          variantId,
 
-      /*
-       * Never guess the configuration of an old persisted
-       * refurbished cart item.
-       */
-      if (
-        requestedCondition ===
-          "refurbished" &&
-        (
-          !requestedRefurbishedGrade ||
-          !requestedBatteryGrade
-        )
-      ) {
-        throw new Error(
-          "REFURBISHED_CONFIGURATION_REQUIRED"
-        );
-      }
+          condition:
+            requestedCondition,
 
-      /*
-       * Exact grade prices live on product_variants, so a
-       * refurbished checkout must resolve a real variant.
-       */
-      if (
-        requestedCondition ===
-          "refurbished" &&
-        !variantId
-      ) {
-        throw new Error(
-          "REFURBISHED_VARIANT_REQUIRED"
-        );
+          refurbishedGrade:
+            requestedRefurbishedGrade,
+
+          batteryGrade:
+            requestedBatteryGrade,
+
+          quantity:
+            1,
+        });
       }
 
       const result =
@@ -2134,43 +2748,8 @@ export default function CheckoutScreen() {
           customerNotes:
             customer.notes.trim(),
 
-          productId,
-
-          variantId,
-
-          condition:
-            requestedCondition,
-
-          /*
-           * Selection identifiers only.
-           *
-           * The Edge Function will independently:
-           *
-           * 1. Read the exact cosmetic-grade price from
-           *    Supabase.
-           *
-           * 2. Add exactly €89 when batteryGrade === "new".
-           *
-           * 3. Calculate authoritative destination shipping.
-           *
-           * 4. Calculate the final bank-transfer amount.
-           */
-          refurbishedGrade:
-            requestedCondition ===
-              "refurbished"
-              ? requestedRefurbishedGrade
-              : null,
-
-          batteryGrade:
-            requestedCondition ===
-              "refurbished"
-              ? requestedBatteryGrade
-              : null,
-
-          quantity:
-            orderItem
-              ?.quantity ??
-            1,
+          items:
+            bankTransferItems,
 
           paymentMethod:
             "bank_transfer",
@@ -2190,12 +2769,18 @@ export default function CheckoutScreen() {
         result
       );
 
-      if (cartHasItems) {
+      if (
+        cartHasItems
+      ) {
         clearCart();
       }
 
-      setSubmitted(true);
-    } catch (error) {
+      setSubmitted(
+        true
+      );
+    } catch (
+      error
+    ) {
       console.error(
         "Checkout error:",
         error
@@ -2206,20 +2791,32 @@ export default function CheckoutScreen() {
           ? error.message
           : "ORDER_CREATE_FAILED";
 
-      const baseMessage =
+      let baseMessage =
+        text.orderFailed;
+
+      if (
         errorCode ===
-        "PRODUCT_REQUIRED"
-          ? text.missingDatabaseProduct
-          : errorCode ===
-                "REFURBISHED_CONFIGURATION_REQUIRED" ||
-              errorCode ===
-                "REFURBISHED_GRADE_REQUIRED" ||
-              errorCode ===
-                "BATTERY_GRADE_REQUIRED" ||
-              errorCode ===
-                "REFURBISHED_VARIANT_REQUIRED"
-            ? text.missingRefurbishedConfiguration
-            : text.orderFailed;
+          "PRODUCT_REQUIRED" ||
+        errorCode ===
+          "ITEMS_REQUIRED"
+      ) {
+        baseMessage =
+          text.missingDatabaseProduct;
+      }
+
+      if (
+        errorCode ===
+          "REFURBISHED_CONFIGURATION_REQUIRED" ||
+        errorCode ===
+          "REFURBISHED_GRADE_REQUIRED" ||
+        errorCode ===
+          "BATTERY_GRADE_REQUIRED" ||
+        errorCode ===
+          "REFURBISHED_VARIANT_REQUIRED"
+      ) {
+        baseMessage =
+          text.missingRefurbishedConfiguration;
+      }
 
       const message =
         `${baseMessage} (${errorCode})`;
@@ -2228,9 +2825,13 @@ export default function CheckoutScreen() {
         message
       );
 
-      alert(message);
+      alert(
+        message
+      );
     } finally {
-      setSubmitting(false);
+      setSubmitting(
+        false
+      );
     }
   }
 
@@ -2350,9 +2951,7 @@ export default function CheckoutScreen() {
           ]}
         >
           <Link
-            href={
-              "/" as any
-            }
+            href={"/" as any}
             asChild
           >
             <Pressable>
@@ -2812,7 +3411,7 @@ export default function CheckoutScreen() {
   }
 
   /* =======================================================
-     SUCCESS
+     BANK TRANSFER SUCCESS
   ======================================================= */
 
   if (
@@ -4868,35 +5467,43 @@ export default function CheckoutScreen() {
           </Text>
         </View>
 
-        <View
+        {/* =================================================
+            STRIPE
+        ================================================= */}
+
+        <Pressable
+          onPress={() =>
+            selectPaymentMethod(
+              "stripe"
+            )
+          }
           style={[
             styles.paymentOption,
+
             isMobile &&
               styles.paymentOptionMobile,
-            styles.paymentOptionDisabled,
+
+            selectedPaymentMethod ===
+              "stripe" &&
+              styles.paymentOptionActive,
           ]}
         >
           <View
             style={[
               styles.paymentLogoBox,
+
               isMobile &&
                 styles.paymentLogoBoxMobile,
+
+              styles.stripeLogoBox,
             ]}
           >
             <Text
               style={
-                styles.cardBrandVisa
+                styles.stripeLogo
               }
             >
-              VISA
-            </Text>
-
-            <Text
-              style={
-                styles.cardBrandMastercard
-              }
-            >
-              MC
+              Stripe
             </Text>
           </View>
 
@@ -4905,57 +5512,54 @@ export default function CheckoutScreen() {
               styles.paymentOptionInfo
             }
           >
-            <View
-              style={
-                styles.upayTitleRow
-              }
-            >
-              <Text
-                style={[
-                  styles.paymentOptionTitle,
-                  isMobile &&
-                    styles.paymentOptionTitleMobile,
-                ]}
-              >
-                {text.card}
-              </Text>
+            <Text
+              style={[
+                styles.paymentOptionTitle,
 
-              <View
-                style={
-                  styles.comingSoonBadge
-                }
-              >
-                <Text
-                  style={
-                    styles.comingSoonText
-                  }
-                >
-                  {
-                    text.comingSoon
-                  }
-                </Text>
-              </View>
-            </View>
+                isMobile &&
+                  styles.paymentOptionTitleMobile,
+              ]}
+            >
+              {text.stripe}
+            </Text>
 
             <Text
               style={[
                 styles.paymentOptionDescription,
+
                 isMobile &&
                   styles.paymentOptionDescriptionMobile,
               ]}
             >
               {
-                text.cardDescription
+                text.stripeDescription
               }
             </Text>
           </View>
 
           <View
-            style={
-              styles.radioDisabled
-            }
-          />
-        </View>
+            style={[
+              styles.radio,
+
+              selectedPaymentMethod ===
+                "stripe" &&
+                styles.radioActive,
+            ]}
+          >
+            {selectedPaymentMethod ===
+            "stripe" ? (
+              <View
+                style={
+                  styles.radioDot
+                }
+              />
+            ) : null}
+          </View>
+        </Pressable>
+
+        {/* =================================================
+            PAYPAL
+        ================================================= */}
 
         <Pressable
           onPress={() =>
@@ -4965,6 +5569,7 @@ export default function CheckoutScreen() {
           }
           style={[
             styles.paymentOption,
+
             isMobile &&
               styles.paymentOptionMobile,
 
@@ -4976,6 +5581,7 @@ export default function CheckoutScreen() {
           <View
             style={[
               styles.paymentLogoBox,
+
               isMobile &&
                 styles.paymentLogoBoxMobile,
             ]}
@@ -4997,6 +5603,7 @@ export default function CheckoutScreen() {
             <Text
               style={[
                 styles.paymentOptionTitle,
+
                 isMobile &&
                   styles.paymentOptionTitleMobile,
               ]}
@@ -5007,6 +5614,7 @@ export default function CheckoutScreen() {
             <Text
               style={[
                 styles.paymentOptionDescription,
+
                 isMobile &&
                   styles.paymentOptionDescriptionMobile,
               ]}
@@ -5044,35 +5652,21 @@ export default function CheckoutScreen() {
               styles.paypalCheckoutBox
             }
           >
-            {paypalProductId ? (
+            {paypalItems.length >
+            0 ? (
               <PayPalCheckout
-                productId={
-                  paypalProductId
-                }
-                variantId={
-                  paypalVariantId
-                }
-                condition={
-                  paypalCondition
-                }
-                quantity={
-                  paypalQuantity
-                }
-
-                refurbishedGrade={
-                  paypalRefurbishedGrade
-                }
-
-                batteryGrade={
-                  paypalBatteryGrade
+                items={
+                  paypalItems
                 }
 
                 customerName={
                   customer.name
                 }
+
                 customerEmail={
                   customer.email
                 }
+
                 customerWhatsapp={
                   customer.whatsapp
                 }
@@ -5080,21 +5674,27 @@ export default function CheckoutScreen() {
                 country={
                   customer.country
                 }
+
                 stateRegion={
                   customer.stateRegion
                 }
+
                 city={
                   customer.city
                 }
+
                 street={
                   customer.street
                 }
+
                 houseNumber={
                   customer.houseNumber
                 }
+
                 addressLine2={
                   customer.addressLine2
                 }
+
                 postalCode={
                   customer.postalCode
                 }
@@ -5114,6 +5714,7 @@ export default function CheckoutScreen() {
                 onBeforeStart={() =>
                   validateCustomerDetails()
                 }
+
                 onSuccess={(
                   result:
                     PayPalCheckoutSuccessResult
@@ -5137,11 +5738,13 @@ export default function CheckoutScreen() {
                     clearCart();
                   }
                 }}
+
                 onCancel={() => {
                   console.log(
                     "PayPal payment cancelled"
                   );
                 }}
+
                 onError={(
                   error: Error
                 ) => {
@@ -5175,6 +5778,10 @@ export default function CheckoutScreen() {
           </View>
         ) : null}
 
+        {/* =================================================
+            BANK TRANSFER
+        ================================================= */}
+
         <Pressable
           onPress={() =>
             selectPaymentMethod(
@@ -5183,6 +5790,7 @@ export default function CheckoutScreen() {
           }
           style={[
             styles.paymentOption,
+
             isMobile &&
               styles.paymentOptionMobile,
 
@@ -5194,6 +5802,7 @@ export default function CheckoutScreen() {
           <View
             style={[
               styles.paymentLogoBox,
+
               isMobile &&
                 styles.paymentLogoBoxMobile,
             ]}
@@ -5215,6 +5824,7 @@ export default function CheckoutScreen() {
             <Text
               style={[
                 styles.paymentOptionTitle,
+
                 isMobile &&
                   styles.paymentOptionTitleMobile,
               ]}
@@ -5227,6 +5837,7 @@ export default function CheckoutScreen() {
             <Text
               style={[
                 styles.paymentOptionDescription,
+
                 isMobile &&
                   styles.paymentOptionDescriptionMobile,
               ]}
@@ -5257,19 +5868,27 @@ export default function CheckoutScreen() {
           </View>
         </Pressable>
 
+        {/* =================================================
+            UPAY
+        ================================================= */}
+
         <View
           style={[
             styles.paymentOption,
+
             isMobile &&
               styles.paymentOptionMobile,
+
             styles.paymentOptionDisabled,
           ]}
         >
           <View
             style={[
               styles.paymentLogoBox,
+
               isMobile &&
                 styles.paymentLogoBoxMobile,
+
               styles.upayLogoBox,
             ]}
           >
@@ -5320,6 +5939,7 @@ export default function CheckoutScreen() {
             <Text
               style={[
                 styles.paymentOptionDescription,
+
                 isMobile &&
                   styles.paymentOptionDescriptionMobile,
               ]}
@@ -5374,7 +5994,10 @@ export default function CheckoutScreen() {
                 styles.submitButtonDisabled,
             ]}
             onPress={
-              submitRequest
+              selectedPaymentMethod ===
+              "stripe"
+                ? startStripeCheckout
+                : submitRequest
             }
             disabled={
               submitting
@@ -5386,8 +6009,14 @@ export default function CheckoutScreen() {
               }
             >
               {submitting
-                ? text.creatingOrder
-                : text.submitOrder}
+                ? selectedPaymentMethod ===
+                  "stripe"
+                  ? text.stripeRedirecting
+                  : text.creatingOrder
+                : selectedPaymentMethod ===
+                    "stripe"
+                  ? text.continueToPayment
+                  : text.submitOrder}
             </Text>
           </Pressable>
         ) : null}
@@ -5983,7 +6612,8 @@ const styles = StyleSheet.create({
   summaryItem: {
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.1)",
+    borderTopColor:
+      "rgba(255,255,255,0.1)",
   },
 
   summaryName: {
@@ -5993,7 +6623,8 @@ const styles = StyleSheet.create({
   },
 
   summaryMeta: {
-    color: "rgba(255,255,255,0.62)",
+    color:
+      "rgba(255,255,255,0.62)",
     marginTop: 3,
     fontSize: 12,
   },
@@ -6002,7 +6633,8 @@ const styles = StyleSheet.create({
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent:
+      "space-between",
     gap: 16,
     paddingVertical: 6,
   },
@@ -6012,7 +6644,8 @@ const styles = StyleSheet.create({
   },
 
   summaryPriceLabel: {
-    color: "rgba(255,255,255,0.68)",
+    color:
+      "rgba(255,255,255,0.68)",
     fontSize: 12,
     fontWeight: "700",
   },
@@ -6024,13 +6657,15 @@ const styles = StyleSheet.create({
   },
 
   shippingDestination: {
-    color: "rgba(255,255,255,0.45)",
+    color:
+      "rgba(255,255,255,0.45)",
     fontSize: 10,
     marginTop: 2,
   },
 
   shippingPending: {
-    color: "rgba(255,255,255,0.52)",
+    color:
+      "rgba(255,255,255,0.52)",
     fontSize: 11,
     lineHeight: 16,
     paddingVertical: 7,
@@ -6052,7 +6687,8 @@ const styles = StyleSheet.create({
 
   divider: {
     height: 1,
-    backgroundColor: "rgba(255,255,255,0.12)",
+    backgroundColor:
+      "rgba(255,255,255,0.12)",
     marginVertical: 12,
   },
 
@@ -6072,16 +6708,19 @@ const styles = StyleSheet.create({
   },
 
   priceSub: {
-    color: "rgba(255,255,255,0.6)",
+    color:
+      "rgba(255,255,255,0.6)",
     marginTop: 3,
     fontSize: 11,
   },
 
   paymentSection: {
-    backgroundColor: colors.white,
+    backgroundColor:
+      colors.white,
     borderRadius: 32,
     borderWidth: 1,
-    borderColor: colors.ink12,
+    borderColor:
+      colors.ink12,
     padding: 28,
   },
 
@@ -6142,10 +6781,12 @@ const styles = StyleSheet.create({
   paymentOption: {
     minHeight: 94,
     width: "100%",
-    backgroundColor: "#FFFFFF",
+    backgroundColor:
+      "#FFFFFF",
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: "#E5E5E5",
+    borderColor:
+      "#E5E5E5",
     paddingHorizontal: 20,
     paddingVertical: 15,
     marginBottom: 12,
@@ -6173,20 +6814,24 @@ const styles = StyleSheet.create({
 
   paymentOptionActive: {
     borderWidth: 2,
-    borderColor: colors.blue,
-    backgroundColor: "#FAFCFF",
+    borderColor:
+      colors.blue,
+    backgroundColor:
+      "#FAFCFF",
   },
 
   paymentOptionDisabled: {
     opacity: 0.5,
-    backgroundColor: "#F7F7F7",
+    backgroundColor:
+      "#F7F7F7",
   },
 
   paymentLogoBox: {
     width: 92,
     minHeight: 58,
     borderRadius: 16,
-    backgroundColor: "#F6F6F6",
+    backgroundColor:
+      "#F6F6F6",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 8,
@@ -6228,18 +6873,16 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  cardBrandVisa: {
-    color: "#163D9B",
-    fontSize: 17,
-    fontWeight: "900",
-    fontStyle: "italic",
+  stripeLogoBox: {
+    backgroundColor:
+      "#F4F1FF",
   },
 
-  cardBrandMastercard: {
-    color: "#D94B26",
-    fontSize: 11,
+  stripeLogo: {
+    color:
+      "#635BFF",
+    fontSize: 16,
     fontWeight: "900",
-    marginTop: 2,
   },
 
   paypalLogo: {
@@ -6254,9 +6897,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     padding: 14,
     borderRadius: 18,
-    backgroundColor: "#FAFCFF",
+    backgroundColor:
+      "#FAFCFF",
     borderWidth: 1,
-    borderColor: colors.ink12,
+    borderColor:
+      colors.ink12,
   },
 
   paypalErrorText: {
@@ -6274,7 +6919,8 @@ const styles = StyleSheet.create({
   },
 
   upayLogoBox: {
-    backgroundColor: colors.ink,
+    backgroundColor:
+      colors.ink,
   },
 
   upayLogo: {
@@ -6292,7 +6938,8 @@ const styles = StyleSheet.create({
   },
 
   comingSoonBadge: {
-    backgroundColor: colors.ink,
+    backgroundColor:
+      colors.ink,
     borderRadius: 999,
     paddingHorizontal: 9,
     paddingVertical: 4,
@@ -6302,7 +6949,8 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 10,
     fontWeight: "900",
-    textTransform: "uppercase",
+    textTransform:
+      "uppercase",
     letterSpacing: 0.5,
   },
 
@@ -6311,21 +6959,24 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: "#C8C8C8",
+    borderColor:
+      "#C8C8C8",
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
   },
 
   radioActive: {
-    borderColor: colors.blue,
+    borderColor:
+      colors.blue,
   },
 
   radioDot: {
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: colors.blue,
+    backgroundColor:
+      colors.blue,
   },
 
   radioDisabled: {
@@ -6333,7 +6984,8 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: "#D8D8D8",
+    borderColor:
+      "#D8D8D8",
     flexShrink: 0,
   },
 
@@ -6346,7 +6998,8 @@ const styles = StyleSheet.create({
   },
 
   submitButton: {
-    backgroundColor: colors.blue,
+    backgroundColor:
+      colors.blue,
     minHeight: 56,
     borderRadius: 18,
     paddingHorizontal: 22,
@@ -6371,9 +7024,11 @@ const styles = StyleSheet.create({
     marginTop: 12,
     padding: 12,
     borderRadius: 14,
-    backgroundColor: "#FFF2F2",
+    backgroundColor:
+      "#FFF2F2",
     borderWidth: 1,
-    borderColor: "#F2CACA",
+    borderColor:
+      "#F2CACA",
   },
 
   submitErrorText: {
@@ -6390,10 +7045,12 @@ const styles = StyleSheet.create({
   },
 
   successBox: {
-    backgroundColor: colors.white,
+    backgroundColor:
+      colors.white,
     borderRadius: 34,
     borderWidth: 1,
-    borderColor: colors.ink12,
+    borderColor:
+      colors.ink12,
     padding: 34,
   },
 
@@ -6439,14 +7096,17 @@ const styles = StyleSheet.create({
   },
 
   successStatusBadge: {
-    alignSelf: "flex-start",
+    alignSelf:
+      "flex-start",
     marginTop: 14,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: "#FFF7E8",
+    backgroundColor:
+      "#FFF7E8",
     borderWidth: 1,
-    borderColor: "#F3D8A4",
+    borderColor:
+      "#F3D8A4",
   },
 
   successStatusText: {
@@ -6454,7 +7114,8 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     fontSize: 10,
     letterSpacing: 0.4,
-    textTransform: "uppercase",
+    textTransform:
+      "uppercase",
   },
 
   successGrid: {
@@ -6465,7 +7126,8 @@ const styles = StyleSheet.create({
   },
 
   successGridMobile: {
-    flexDirection: "column",
+    flexDirection:
+      "column",
     gap: 8,
     marginTop: 14,
   },
@@ -6475,9 +7137,11 @@ const styles = StyleSheet.create({
     flexBasis: 240,
     padding: 18,
     borderRadius: 18,
-    backgroundColor: colors.bg,
+    backgroundColor:
+      colors.bg,
     borderWidth: 1,
-    borderColor: colors.ink12,
+    borderColor:
+      colors.ink12,
   },
 
   successInfoCardMobile: {
@@ -6492,7 +7156,8 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "900",
     letterSpacing: 1,
-    textTransform: "uppercase",
+    textTransform:
+      "uppercase",
   },
 
   successInfoValue: {
@@ -6521,7 +7186,8 @@ const styles = StyleSheet.create({
     marginTop: 16,
     padding: 20,
     borderRadius: 20,
-    backgroundColor: colors.ink,
+    backgroundColor:
+      colors.ink,
   },
 
   referenceBoxMobile: {
@@ -6531,11 +7197,13 @@ const styles = StyleSheet.create({
   },
 
   referenceLabel: {
-    color: "rgba(255,255,255,0.6)",
+    color:
+      "rgba(255,255,255,0.6)",
     fontSize: 10,
     fontWeight: "900",
     letterSpacing: 1,
-    textTransform: "uppercase",
+    textTransform:
+      "uppercase",
   },
 
   referenceValue: {
@@ -6548,7 +7216,8 @@ const styles = StyleSheet.create({
   },
 
   referenceHelp: {
-    color: "rgba(255,255,255,0.68)",
+    color:
+      "rgba(255,255,255,0.68)",
     fontSize: 11,
     lineHeight: 16,
     marginTop: 6,
@@ -6558,9 +7227,11 @@ const styles = StyleSheet.create({
     marginTop: 16,
     padding: 22,
     borderRadius: 22,
-    backgroundColor: "#FAFAF8",
+    backgroundColor:
+      "#FAFAF8",
     borderWidth: 1,
-    borderColor: colors.ink12,
+    borderColor:
+      colors.ink12,
   },
 
   bankDetailsBoxMobile: {
@@ -6586,7 +7257,8 @@ const styles = StyleSheet.create({
   bankDetailRow: {
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: colors.ink12,
+    borderTopColor:
+      colors.ink12,
   },
 
   bankDetailLabel: {
@@ -6594,7 +7266,8 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "900",
     letterSpacing: 0.8,
-    textTransform: "uppercase",
+    textTransform:
+      "uppercase",
   },
 
   bankDetailValue: {
@@ -6617,14 +7290,18 @@ const styles = StyleSheet.create({
     marginTop: 10,
     padding: 12,
     borderRadius: 14,
-    backgroundColor: "#EFFAF2",
+    backgroundColor:
+      "#EFFAF2",
     borderWidth: 1,
-    borderColor: "#CBE8D1",
+    borderColor:
+      "#CBE8D1",
   },
 
   emailNoticeWarning: {
-    backgroundColor: "#FFF7E8",
-    borderColor: "#F3D8A4",
+    backgroundColor:
+      "#FFF7E8",
+    borderColor:
+      "#F3D8A4",
   },
 
   emailNoticeText: {
@@ -6635,11 +7312,13 @@ const styles = StyleSheet.create({
   },
 
   primaryButton: {
-    backgroundColor: colors.ink,
+    backgroundColor:
+      colors.ink,
     paddingHorizontal: 22,
     paddingVertical: 15,
     borderRadius: 18,
-    alignSelf: "flex-start",
+    alignSelf:
+      "flex-start",
     marginTop: 20,
   },
 
@@ -6658,10 +7337,12 @@ const styles = StyleSheet.create({
   },
 
   emptyBox: {
-    backgroundColor: colors.white,
+    backgroundColor:
+      colors.white,
     borderRadius: 34,
     borderWidth: 1,
-    borderColor: colors.ink12,
+    borderColor:
+      colors.ink12,
     padding: 34,
   },
 
@@ -6709,209 +7390,111 @@ const styles = StyleSheet.create({
   paypalPaidBadge: {
     alignSelf:
       "flex-start",
-
-    marginTop:
-      14,
-
-    paddingHorizontal:
-      11,
-
-    paddingVertical:
-      6,
-
-    borderRadius:
-      999,
-
+    marginTop: 14,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 999,
     backgroundColor:
       "#EFFAF2",
-
-    borderWidth:
-      1,
-
+    borderWidth: 1,
     borderColor:
       "#CBE8D1",
   },
 
   paypalPaidBadgeText: {
-    color:
-      "#147A36",
-
-    fontWeight:
-      "900",
-
-    fontSize:
-      10,
-
-    letterSpacing:
-      0.6,
-
+    color: "#147A36",
+    fontWeight: "900",
+    fontSize: 10,
+    letterSpacing: 0.6,
     textTransform:
       "uppercase",
   },
 
   paypalPaymentSummary: {
-    marginTop:
-      16,
-
-    padding:
-      20,
-
-    borderRadius:
-      20,
-
+    marginTop: 16,
+    padding: 20,
+    borderRadius: 20,
     backgroundColor:
       "#FAFAF8",
-
-    borderWidth:
-      1,
-
+    borderWidth: 1,
     borderColor:
       colors.ink12,
   },
 
   paypalPaymentSummaryRow: {
-    width:
-      "100%",
-
-    flexDirection:
-      "row",
-
-    alignItems:
-      "center",
-
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
     justifyContent:
       "space-between",
-
-    gap:
-      16,
-
-    paddingVertical:
-      7,
+    gap: 16,
+    paddingVertical: 7,
   },
 
   paypalPaymentSummaryLabel: {
-    color:
-      colors.ink70,
-
-    fontSize:
-      13,
-
-    fontWeight:
-      "700",
+    color: colors.ink70,
+    fontSize: 13,
+    fontWeight: "700",
   },
 
   paypalPaymentSummaryValue: {
-    color:
-      colors.ink,
-
-    fontSize:
-      14,
-
-    fontWeight:
-      "900",
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "900",
   },
 
   paypalPaymentSummaryDivider: {
-    width:
-      "100%",
-
-    height:
-      1,
-
+    width: "100%",
+    height: 1,
     backgroundColor:
       colors.ink12,
-
-    marginVertical:
-      8,
+    marginVertical: 8,
   },
 
   paypalPaymentSummaryTotalLabel: {
-    color:
-      colors.ink,
-
-    fontSize:
-      15,
-
-    fontWeight:
-      "900",
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "900",
   },
 
   paypalPaymentSummaryTotalValue: {
-    color:
-      colors.ink,
-
-    fontSize:
-      21,
-
-    fontWeight:
-      "900",
-
-    letterSpacing:
-      -0.5,
+    color: colors.ink,
+    fontSize: 21,
+    fontWeight: "900",
+    letterSpacing: -0.5,
   },
 
   paypalProcessingBox: {
-    marginTop:
-      16,
-
-    padding:
-      18,
-
-    borderRadius:
-      18,
-
+    marginTop: 16,
+    padding: 18,
+    borderRadius: 18,
     backgroundColor:
       colors.blueLt,
-
-    borderWidth:
-      1,
-
+    borderWidth: 1,
     borderColor:
       colors.blue,
   },
 
   paypalProcessingTitle: {
-    color:
-      colors.blue,
-
-    fontSize:
-      13,
-
-    fontWeight:
-      "900",
-
+    color: colors.blue,
+    fontSize: 13,
+    fontWeight: "900",
     textTransform:
       "uppercase",
-
-    letterSpacing:
-      0.7,
+    letterSpacing: 0.7,
   },
 
   paypalProcessingText: {
-    color:
-      colors.ink70,
-
-    fontSize:
-      12,
-
-    lineHeight:
-      18,
-
-    marginTop:
-      5,
+    color: colors.ink70,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 5,
   },
 
   paypalWarningText: {
-    color:
-      "#8A5A00",
-
-    fontSize:
-      10,
-
-    lineHeight:
-      15,
-
-    marginTop:
-      5,
+    color: "#8A5A00",
+    fontSize: 10,
+    lineHeight: 15,
+    marginTop: 5,
   },
 });
