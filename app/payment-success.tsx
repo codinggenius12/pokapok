@@ -26,8 +26,6 @@ import { supabase } from "../src/lib/supabase";
 ========================================================= */
 
 type OrderSummary = {
-  id: string;
-
   order_number:
     string | null;
 
@@ -54,9 +52,20 @@ type OrderSummary = {
 
   display_currency:
     string | null;
+};
 
-  customer_email:
-    string | null;
+type PaymentSuccessResponse = {
+  success:
+    boolean;
+
+  order?:
+    OrderSummary;
+
+  error?:
+    string;
+
+  message?:
+    string;
 };
 
 /* =========================================================
@@ -89,7 +98,9 @@ function toNumber(
       ? value
       : Number(value);
 
-  return Number.isFinite(parsed)
+  return Number.isFinite(
+    parsed
+  )
     ? parsed
     : null;
 }
@@ -102,7 +113,9 @@ function formatMoney(
     string | null | undefined
 ) {
   const numericAmount =
-    toNumber(amount);
+    toNumber(
+      amount
+    );
 
   if (
     numericAmount === null
@@ -111,11 +124,13 @@ function formatMoney(
   }
 
   const normalizedCurrency =
-    cleanString(currency)
-      .toUpperCase();
+    cleanString(
+      currency
+    ).toUpperCase();
 
   if (
-    normalizedCurrency === "CVE"
+    normalizedCurrency ===
+    "CVE"
   ) {
     return `${Math.round(
       numericAmount
@@ -125,7 +140,8 @@ function formatMoney(
   }
 
   if (
-    normalizedCurrency === "EUR"
+    normalizedCurrency ===
+    "EUR"
   ) {
     return new Intl.NumberFormat(
       "pt-PT",
@@ -151,8 +167,9 @@ function paymentMethodLabel(
     string | null
 ) {
   switch (
-    cleanString(method)
-      .toLowerCase()
+    cleanString(
+      method
+    ).toLowerCase()
   ) {
     case "klarna":
       return "Klarna";
@@ -175,6 +192,22 @@ function paymentMethodLabel(
     default:
       return null;
   }
+}
+
+function delay(
+  milliseconds:
+    number
+) {
+  return new Promise(
+    (
+      resolve
+    ) => {
+      setTimeout(
+        resolve,
+        milliseconds
+      );
+    }
+  );
 }
 
 /* =========================================================
@@ -242,7 +275,7 @@ export default function PaymentSuccessScreen() {
     );
 
   /* =======================================================
-     LOAD ORDER
+     LOAD ORDER THROUGH EDGE FUNCTION
   ======================================================= */
 
   useEffect(
@@ -256,6 +289,10 @@ export default function PaymentSuccessScreen() {
         );
 
         setError(
+          null
+        );
+
+        setOrder(
           null
         );
 
@@ -277,98 +314,165 @@ export default function PaymentSuccessScreen() {
           return;
         }
 
-        try {
-          const {
-            data,
-            error:
-              queryError,
-          } =
-            await supabase
-              .from(
-                "orders"
-              )
-              .select(
-                `
-                id,
-                order_number,
-                payment_status,
-                order_status,
-                stripe_payment_status,
-                stripe_payment_method_type,
-                total_amount,
-                currency,
-                display_total_amount,
-                display_currency,
-                customer_email
-                `
-              )
-              .eq(
-                "stripe_checkout_session_id",
-                sessionId
-              )
-              .maybeSingle();
+        /*
+         * We retry briefly because Stripe can redirect the
+         * customer before all backend processing/webhooks
+         * have fully completed.
+         */
+        const maxAttempts =
+          4;
 
+        for (
+          let attempt = 1;
+          attempt <=
+          maxAttempts;
+          attempt++
+        ) {
           if (
             cancelled
           ) {
             return;
           }
 
-          if (
-            queryError
+          try {
+            const {
+              data,
+              error:
+                functionError,
+            } =
+              await supabase
+                .functions
+                .invoke(
+                  "get-payment-success",
+                  {
+                    body: {
+                      session_id:
+                        sessionId,
+                    },
+                  }
+                );
+
+            if (
+              cancelled
+            ) {
+              return;
+            }
+
+            if (
+              functionError
+            ) {
+              console.error(
+                "Payment success Edge Function error:",
+                functionError
+              );
+
+              if (
+                attempt <
+                maxAttempts
+              ) {
+                await delay(
+                  1000
+                );
+
+                continue;
+              }
+
+              setError(
+                "We received your return from the payment provider, but could not load the order details."
+              );
+
+              return;
+            }
+
+            const response =
+              data as
+                | PaymentSuccessResponse
+                | null;
+
+            if (
+              response
+                ?.success &&
+              response
+                .order
+            ) {
+              setOrder(
+                response.order
+              );
+
+              setError(
+                null
+              );
+
+              return;
+            }
+
+            if (
+              response
+                ?.error ===
+                "ORDER_NOT_FOUND" &&
+              attempt <
+                maxAttempts
+            ) {
+              await delay(
+                1000
+              );
+
+              continue;
+            }
+
+            setError(
+              response
+                ?.message ??
+                "Your payment was returned successfully, but the order is still being confirmed."
+            );
+
+            return;
+          } catch (
+            loadError
           ) {
             console.error(
-              "Payment success order query error:",
-              queryError
+              "Payment success load error:",
+              loadError
             );
 
-            setError(
-              "We received your return from the payment provider, but could not load the order details."
-            );
+            if (
+              cancelled
+            ) {
+              return;
+            }
 
-            return;
-          }
+            if (
+              attempt <
+              maxAttempts
+            ) {
+              await delay(
+                1000
+              );
 
-          if (
-            !data
-          ) {
-            setError(
-              "Your payment was returned successfully, but the order is still being confirmed."
-            );
+              continue;
+            }
 
-            return;
-          }
-
-          setOrder(
-            data as OrderSummary
-          );
-        } catch (
-          loadError
-        ) {
-          console.error(
-            "Payment success load error:",
-            loadError
-          );
-
-          if (
-            !cancelled
-          ) {
             setError(
               "We could not load your order details."
             );
-          }
-        } finally {
-          if (
-            !cancelled
-          ) {
-            setLoading(
-              false
-            );
+
+            return;
           }
         }
       }
 
-      loadOrder();
+      loadOrder()
+        .finally(
+          () => {
+            if (
+              !cancelled
+            ) {
+              setLoading(
+                false
+              );
+            }
+          }
+        );
 
       return () => {
         cancelled =
@@ -567,7 +671,8 @@ export default function PaymentSuccessScreen() {
               styles.orderBox
             }
           >
-            {order.order_number ? (
+            {order
+              .order_number ? (
               <View
                 style={
                   styles.row
@@ -587,7 +692,8 @@ export default function PaymentSuccessScreen() {
                   }
                 >
                   {
-                    order.order_number
+                    order
+                      .order_number
                   }
                 </Text>
               </View>
@@ -714,20 +820,6 @@ export default function PaymentSuccessScreen() {
           >
             We will prepare your order and send you an update when it is ready for shipment.
           </Text>
-
-          {order
-            ?.customer_email ? (
-            <Text
-              style={
-                styles.infoText
-              }
-            >
-              A confirmation will be sent to{" "}
-              {
-                order.customer_email
-              }.
-            </Text>
-          ) : null}
         </View>
 
         <Pressable
